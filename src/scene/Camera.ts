@@ -50,6 +50,11 @@ export class GameCamera {
     });
   }
 
+  /** 0 = chase, 1 = fully first-person */
+  get fpBlendValue(): number {
+    return this.fpBlend;
+  }
+
   setMode(mode: 'chase' | 'overview'): void {
     this.mode = mode;
     if (mode === 'overview') {

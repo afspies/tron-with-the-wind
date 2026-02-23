@@ -374,6 +374,20 @@ export class Game {
 
     // Always update camera and render
     this.gameCamera.update(dt, this.bikes);
+
+    // Hide local player's trail near the bike in first-person mode
+    const fpBlend = this.gameCamera.fpBlendValue;
+    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config?.localSlot ?? 0));
+    if (localBikeIdx >= 0 && fpBlend > 0) {
+      const trail = this.bikes[localBikeIdx].trail;
+      const totalSegs = trail.points.length - 1;
+      if (totalSegs > 0) {
+        const hideSegs = Math.round(8 * fpBlend);
+        const visibleSegs = Math.max(0, totalSegs - hideSegs);
+        trail.mesh.geometry.setDrawRange(0, visibleSegs * 6);
+      }
+    }
+
     updateEnvironment(this.ctx.scene, this.elapsedTime);
     this.ctx.composer.render();
   };

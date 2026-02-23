@@ -22,6 +22,8 @@ export class Trail {
       color: new THREE.Color(color),
       emissive: new THREE.Color(color),
       emissiveIntensity: 1.0,
+      transparent: true,
+      opacity: 0.8,
       side: THREE.DoubleSide,
     });
 
