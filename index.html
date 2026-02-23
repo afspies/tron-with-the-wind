@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tron with the Wind</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Cinzel+Decorative:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a0a2e; }
+    canvas { display: block; }
+
+    #ui-root {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      font-family: 'Cinzel', serif;
+      color: #f0e6d3;
+    }
+    #ui-root > * { pointer-events: auto; }
+
+    #menu {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      background: radial-gradient(ellipse at center, rgba(26,10,46,0.85) 0%, rgba(10,5,20,0.95) 100%);
+      position: relative;
+    }
+    #version-tag {
+      position: absolute;
+      top: 12px;
+      left: 14px;
+      font-size: 0.7rem;
+      color: rgba(153,102,204,0.5);
+      font-family: monospace;
+      letter-spacing: 0.05em;
+    }
+    #menu h1 {
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 4rem;
+      font-weight: 900;
+      background: linear-gradient(135deg, #ffd700, #ff8c00, #ffd700);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: none;
+      margin-bottom: 0.5rem;
+      letter-spacing: 0.05em;
+    }
+    #menu .subtitle {
+      font-size: 1rem;
+      color: #9966CC;
+      margin-bottom: 3rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+    .menu-btn {
+      display: block;
+      width: 320px;
+      padding: 16px 32px;
+      margin: 8px 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #f0e6d3;
+      background: linear-gradient(135deg, rgba(153,102,204,0.3), rgba(80,200,120,0.2));
+      border: 2px solid rgba(153,102,204,0.5);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s;
+      letter-spacing: 0.05em;
+    }
+    .menu-btn:hover {
+      background: linear-gradient(135deg, rgba(153,102,204,0.5), rgba(80,200,120,0.4));
+      border-color: #ffd700;
+      transform: scale(1.03);
+      box-shadow: 0 0 20px rgba(153,102,204,0.4);
+    }
+
+    .menu-section {
+      margin-top: 2rem;
+      text-align: center;
+    }
+    .menu-section label {
+      display: block;
+      margin: 8px 0 4px;
+      font-size: 0.85rem;
+      color: #9966CC;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .menu-section select {
+      font-family: 'Cinzel', serif;
+      font-size: 0.95rem;
+      padding: 8px 16px;
+      background: rgba(26,10,46,0.8);
+      color: #f0e6d3;
+      border: 1px solid rgba(153,102,204,0.4);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    /* Online panel */
+    #online-panel {
+      display: none;
+      margin-top: 2rem;
+      text-align: center;
+    }
+    #online-panel .menu-btn { width: 260px; margin: 6px auto; }
+    .join-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    #join-input {
+      font-family: 'Cinzel', serif;
+      font-size: 1.2rem;
+      width: 140px;
+      padding: 10px 16px;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      background: rgba(26,10,46,0.8);
+      color: #ffd700;
+      border: 2px solid rgba(153,102,204,0.5);
+      border-radius: 6px;
+    }
+    #join-input::placeholder {
+      color: rgba(153,102,204,0.5);
+      letter-spacing: 0.15em;
+      font-size: 0.85rem;
+    }
+
+    /* Lobby */
+    #lobby {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      background: radial-gradient(ellipse at center, rgba(26,10,46,0.85) 0%, rgba(10,5,20,0.95) 100%);
+    }
+    #lobby-code {
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 3rem;
+      font-weight: 900;
+      color: #ffd700;
+      letter-spacing: 0.3em;
+      text-shadow: 0 0 30px rgba(255,215,0,0.5);
+      margin-bottom: 0.3rem;
+    }
+    .lobby-label {
+      font-size: 0.8rem;
+      color: #9966CC;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      margin-bottom: 1.5rem;
+    }
+    #lobby-player-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 1.5rem;
+      min-width: 240px;
+    }
+    .lobby-player-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      background: rgba(153,102,204,0.1);
+      border: 1px solid rgba(153,102,204,0.2);
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    .lobby-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    #lobby-host-controls {
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+    #lobby-host-controls label {
+      display: block;
+      margin: 8px 0 4px;
+      font-size: 0.8rem;
+      color: #9966CC;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    #lobby-host-controls select {
+      font-family: 'Cinzel', serif;
+      font-size: 0.9rem;
+      padding: 6px 12px;
+      background: rgba(26,10,46,0.8);
+      color: #f0e6d3;
+      border: 1px solid rgba(153,102,204,0.4);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #lobby-wait-msg {
+      display: none;
+      font-size: 0.85rem;
+      color: #9966CC;
+      margin-bottom: 1rem;
+    }
+    #host-disconnected {
+      display: none;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(10,5,20,0.9);
+      border: 2px solid rgba(224,17,95,0.6);
+      border-radius: 12px;
+      padding: 2rem 3rem;
+      text-align: center;
+      z-index: 100;
+    }
+    #host-disconnected h2 {
+      color: #E0115F;
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    /* Joining overlay */
+    #joining-overlay {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      background: radial-gradient(ellipse at center, rgba(26,10,46,0.85) 0%, rgba(10,5,20,0.95) 100%);
+    }
+    .joining-spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid rgba(153,102,204,0.3);
+      border-top-color: #ffd700;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 1.5rem;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #joining-phases {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 1.5rem;
+      min-width: 280px;
+    }
+    .joining-phase {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9rem;
+      color: rgba(153,102,204,0.4);
+      transition: color 0.3s;
+    }
+    .joining-phase .phase-indicator {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      text-align: center;
+      line-height: 18px;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+    .joining-phase .phase-indicator::after {
+      content: '\25CB'; /* empty circle */
+    }
+    .joining-phase.active {
+      color: #ffd700;
+    }
+    .joining-phase.active .phase-indicator::after {
+      content: '\25CF'; /* filled circle */
+    }
+    .joining-phase.done {
+      color: #50C878;
+    }
+    .joining-phase.done .phase-indicator::after {
+      content: '\2714'; /* checkmark */
+    }
+    .joining-phase.failed {
+      color: #E0115F;
+    }
+    .joining-phase.failed .phase-indicator::after {
+      content: '\2718'; /* X mark */
+    }
+    #joining-status {
+      font-size: 1rem;
+      color: #9966CC;
+      letter-spacing: 0.1em;
+      margin-bottom: 2rem;
+      min-height: 1.5em;
+    }
+
+    #hud {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+    }
+    #hud-players {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .hud-player {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      opacity: 0.9;
+    }
+    .hud-player.dead { opacity: 0.4; text-decoration: line-through; }
+    .hud-boost-bar {
+      width: 50px;
+      height: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-left: 4px;
+    }
+    .hud-boost-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.1s linear;
+    }
+    .hud-dj-bar {
+      width: 50px;
+      height: 4px;
+      background: rgba(0,221,255,0.15);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-left: 4px;
+    }
+    .hud-dj-fill {
+      height: 100%;
+      width: 100%;
+      background: #00ddff;
+      border-radius: 2px;
+      transition: width 0.3s linear;
+      box-shadow: 0 0 4px rgba(0,221,255,0.5);
+    }
+    .hud-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      box-shadow: 0 0 8px currentColor;
+    }
+    .hud-status {
+      font-size: 1.1rem;
+      min-width: 1em;
+      text-align: center;
+    }
+    #hud-round {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 0.9rem;
+      color: #ffd700;
+    }
+
+    #countdown {
+      display: none;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 8rem;
+      font-weight: 900;
+      color: #ffd700;
+      text-shadow: 0 0 40px rgba(255,215,0,0.6), 0 0 80px rgba(255,215,0,0.3);
+      pointer-events: none;
+    }
+
+    #round-end {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(10,5,20,0.8);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #round-end h2 {
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 2.5rem;
+      color: #ffd700;
+      margin-bottom: 1.5rem;
+    }
+    .scoreboard-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 24px;
+      font-size: 1.1rem;
+      margin: 4px 0;
+      border-radius: 6px;
+    }
+    .scoreboard-row.winner {
+      background: rgba(255,215,0,0.15);
+      border: 1px solid rgba(255,215,0,0.3);
+    }
+    .score-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+    }
+    .score-name { min-width: 120px; }
+    .score-wins {
+      font-weight: 700;
+      color: #ffd700;
+      min-width: 40px;
+      text-align: center;
+    }
+
+    #game-over {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(ellipse at center, rgba(26,10,46,0.9) 0%, rgba(10,5,20,0.97) 100%);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #game-over h1 {
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 3.5rem;
+      font-weight: 900;
+      color: #ffd700;
+      margin-bottom: 0.5rem;
+    }
+    #game-over .winner-name {
+      font-size: 1.8rem;
+      margin-bottom: 2rem;
+    }
+
+    /* Touch Controls */
+    #touch-controls {
+      display: none;
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      justify-content: space-between;
+      padding: 16px 20px;
+      pointer-events: auto;
+      z-index: 50;
+    }
+    .touch-zone {
+      display: flex;
+      gap: 12px;
+    }
+    .touch-btn {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(153,102,204,0.25);
+      border: 2px solid rgba(153,102,204,0.5);
+      color: #f0e6d3;
+      font-family: 'Cinzel', serif;
+      font-size: 1.4rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    .touch-btn.touch-action {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .touch-btn.active {
+      background: rgba(153,102,204,0.5);
+      border-color: #ffd700;
+      box-shadow: 0 0 15px rgba(255,215,0,0.4);
+    }
+
+    #hud-ping {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      font-size: 0.75rem;
+      opacity: 0.7;
+      font-family: monospace;
+    }
+
+    /* Chat */
+    #chat-container {
+      display: none;
+      position: absolute;
+      bottom: 16px; left: 16px;
+      width: 300px;
+      pointer-events: auto;
+      z-index: 60;
+    }
+    #chat-messages {
+      max-height: 150px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 4px;
+    }
+    .chat-msg {
+      font-size: 0.8rem;
+      padding: 2px 0;
+      opacity: 1;
+      transition: opacity 0.5s;
+    }
+    .chat-msg.faded { opacity: 0; }
+    #chat-input {
+      width: 100%;
+      font-family: 'Cinzel', serif;
+      font-size: 0.85rem;
+      padding: 6px 10px;
+      background: rgba(26,10,46,0.85);
+      color: #f0e6d3;
+      border: 1px solid rgba(153,102,204,0.4);
+      border-radius: 4px;
+      display: none;
+    }
+    #chat-input:focus { outline: none; border-color: #ffd700; }
+
+    /* Minimap */
+    .minimap-canvas {
+      position: absolute;
+      top: 40px;
+      right: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 4px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui-root">
+    <div id="menu">
+      <div id="version-tag"></div>
+      <h1>Tron with the Wind</h1>
+      <p class="subtitle">A Fantasy Lightcycle Battle</p>
+      <button class="menu-btn" id="btn-quickplay">Quick Play</button>
+      <button class="menu-btn" id="btn-online">Online Play</button>
+      <div id="online-panel">
+        <button class="menu-btn" id="btn-create-room">Create Room</button>
+        <div class="join-row">
+          <input id="join-input" type="text" maxlength="4" placeholder="CODE" autocomplete="off" />
+          <button class="menu-btn" id="btn-join-room" style="width:auto; padding:10px 24px;">Join</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="lobby">
+      <div id="lobby-code"></div>
+      <div class="lobby-label">Room Code</div>
+      <div id="lobby-player-list"></div>
+      <div id="lobby-host-controls">
+        <label>AI Opponents</label>
+        <select id="lobby-ai-count">
+          <option value="0">None</option>
+          <option value="1">1 AI</option>
+          <option value="2">2 AI</option>
+          <option value="3" selected>3 AI</option>
+        </select>
+        <label>AI Difficulty</label>
+        <select id="lobby-ai-difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+        <label>Rounds to Win</label>
+        <select id="lobby-rounds">
+          <option value="3" selected>3</option>
+          <option value="5">5</option>
+          <option value="7">7</option>
+        </select>
+      </div>
+      <p id="lobby-wait-msg">Waiting for host to start...</p>
+      <button class="menu-btn" id="btn-lobby-start">Start Game</button>
+      <button class="menu-btn" id="btn-lobby-leave" style="margin-top:4px; opacity:0.7; font-size:0.9rem;">Leave Room</button>
+    </div>
+
+    <div id="joining-overlay">
+      <div class="joining-spinner"></div>
+      <div id="joining-phases">
+        <div class="joining-phase" id="phase-relays">
+          <span class="phase-indicator"></span>
+          Connecting to relay servers...
+        </div>
+        <div class="joining-phase" id="phase-search">
+          <span class="phase-indicator"></span>
+          Searching for room <span id="joining-room-code"></span>...
+        </div>
+        <div class="joining-phase" id="phase-peer">
+          <span class="phase-indicator"></span>
+          Connecting to host...
+        </div>
+      </div>
+      <p id="joining-status"></p>
+      <button class="menu-btn" id="btn-joining-cancel">Cancel</button>
+    </div>
+
+    <div id="host-disconnected">
+      <h2>Host Disconnected</h2>
+      <button class="menu-btn" id="btn-dc-menu">Main Menu</button>
+    </div>
+
+    <div id="hud">
+      <div id="hud-players"></div>
+      <div id="hud-round"></div>
+    </div>
+
+    <div id="countdown"></div>
+
+    <div id="round-end">
+      <h2 id="round-end-title"></h2>
+      <div id="scoreboard"></div>
+      <p style="margin-top:1.5rem; font-size:0.85rem; color:#9966CC;">Click or press any key to continue</p>
+    </div>
+
+    <div id="touch-controls"></div>
+
+    <div id="chat-container">
+      <div id="chat-messages"></div>
+      <input id="chat-input" type="text" maxlength="200" placeholder="Press Enter to chat..." autocomplete="off" />
+    </div>
+
+    <div id="game-over">
+      <h1>Victory!</h1>
+      <p class="winner-name" id="game-over-winner"></p>
+      <button class="menu-btn" id="btn-play-again">Play Again</button>
+      <button class="menu-btn" id="btn-main-menu" style="margin-top:4px;">Main Menu</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
