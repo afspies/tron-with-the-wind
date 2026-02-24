@@ -1,0 +1,21 @@
+{
+  "name": "@tron/server",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@tron/shared": "*",
+    "@tron/game-core": "*",
+    "colyseus": "^0.15.0",
+    "@colyseus/schema": "^2.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}
