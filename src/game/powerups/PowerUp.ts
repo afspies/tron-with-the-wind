@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ARENA_HALF, POWERUP_PICKUP_RADIUS } from './constants';
+import { ARENA_HALF, POWERUP_PICKUP_RADIUS } from '../constants';
 
 export type PowerUpType = 'invulnerability';
 
@@ -88,8 +88,8 @@ export class PowerUp {
     this.scene.remove(this.mesh);
   }
 
-  dispose(scene: THREE.Scene): void {
-    scene.remove(this.mesh);
+  dispose(): void {
+    this.scene.remove(this.mesh);
     this.coreMesh.geometry.dispose();
     (this.coreMesh.material as THREE.Material).dispose();
     this.glowMesh.geometry.dispose();

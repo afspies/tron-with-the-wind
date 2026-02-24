@@ -5,6 +5,8 @@ export interface PlayerInput {
   boost: boolean;
 }
 
+export const NO_INPUT: PlayerInput = { left: false, right: false, jump: false, boost: false };
+
 interface KeyMapping {
   left: string;
   right: string;
@@ -34,7 +36,7 @@ export class InputManager {
 
   getInput(playerIndex: number): PlayerInput {
     const map = KEY_MAPS[playerIndex];
-    if (!map) return { left: false, right: false, jump: false, boost: false };
+    if (!map) return NO_INPUT;
     return {
       left: this.keys.has(map.left) || !!this.virtualInputs.get('left'),
       right: this.keys.has(map.right) || !!this.virtualInputs.get('right'),

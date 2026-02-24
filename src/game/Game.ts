@@ -7,7 +7,7 @@ import { setupEnvironment, updateEnvironment } from '../scene/Environment';
 import { Arena } from './Arena';
 import { Bike } from './Bike';
 import { Trail } from './Trail';
-import { InputManager } from './Input';
+import { InputManager, NO_INPUT } from './Input';
 import { AIController } from './AI';
 import { Round } from './Round';
 import { Menu } from '../ui/Menu';
@@ -19,11 +19,10 @@ import { Lobby } from '../ui/Lobby';
 import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
 import { Minimap } from '../ui/Minimap';
-import { PowerUp, PowerUpType, generateSpawnPosition } from './PowerUp';
+import { PowerUpManager } from './PowerUpManager';
 import {
   PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, NET_STATE_INTERVAL, NET_TICK_DURATION_MS,
-  SPAWN_POSITIONS, POWERUP_SPAWN_INTERVAL, POWERUP_SPAWN_DELAY, POWERUP_MAX_ACTIVE,
-  TRAIL_DESTROY_RADIUS,
+  SPAWN_POSITIONS,
 } from './constants';
 
 export class Game {
@@ -54,10 +53,7 @@ export class Game {
   private clientTickSynced = false;
 
   // Power-ups
-  private powerUps: PowerUp[] = [];
-  private nextPowerUpId = 0;
-  private powerUpSpawnTimer = 0;
-  private forceFullTrailResync = false;
+  private powerUpManager!: PowerUpManager;
 
   // UI
   private menu: Menu;
@@ -83,6 +79,7 @@ export class Game {
     setupLighting(this.ctx.scene);
     setupEnvironment(this.ctx.scene);
     this.arena = new Arena(this.ctx.scene);
+    this.powerUpManager = new PowerUpManager(this.ctx.scene);
 
     // Network
     this.net = new NetworkManager();
@@ -274,8 +271,7 @@ export class Game {
   }
 
   private startRound(): void {
-    this.disposePowerUps();
-    this.powerUpSpawnTimer = -POWERUP_SPAWN_DELAY; // negative = wait before first spawn
+    this.powerUpManager.reset();
     this.round.startRound(this.bikes);
     this.state = 'COUNTDOWN';
     this.countdownTimer = COUNTDOWN_DURATION;
@@ -321,7 +317,7 @@ export class Game {
     this.bikes = [];
     this.trails = [];
     this.aiControllers.clear();
-    this.disposePowerUps();
+    this.powerUpManager.dispose();
     this.chat.hide();
     this.minimap.hide();
     this.touchControls.hide();
@@ -395,28 +391,24 @@ export class Game {
   // --- Local (Quickplay) Update ---
 
   private updatePlayingLocal(dt: number): void {
+    const activePUs = this.powerUpManager.allPowerUps.filter(p => p.active).map(p => ({ x: p.x, z: p.z }));
+
     for (const bike of this.bikes) {
       if (!bike.alive) {
-        bike.update(dt, { left: false, right: false, jump: false, boost: false }, this.trails);
+        bike.update(dt, NO_INPUT, this.trails);
         continue;
       }
 
-      let input;
-      if (this.aiControllers.has(bike.playerIndex)) {
-        input = this.aiControllers.get(bike.playerIndex)!.getInput(
-          bike, this.trails, this.elapsedTime,
-          this.powerUps.filter(p => p.active).map(p => ({ x: p.x, z: p.z })),
-        );
-      } else {
-        input = this.input.getInput(bike.playerIndex);
-      }
+      const input = this.aiControllers.has(bike.playerIndex)
+        ? this.aiControllers.get(bike.playerIndex)!.getInput(bike, this.trails, this.elapsedTime, activePUs)
+        : this.input.getInput(bike.playerIndex);
 
       bike.update(dt, input, this.trails);
     }
 
-    this.updatePowerUps(dt);
+    this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, true, null, this.lastBroadcastTrailLen);
     this.hud.update(this.bikes, this.round.roundNumber, this.config.roundsToWin);
-    this.minimap.update(this.bikes, this.powerUps);
+    this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
     this.checkRoundEnd();
   }
 
@@ -424,39 +416,35 @@ export class Game {
 
   private updatePlayingHost(dt: number): void {
     const localSlot = this.config.localSlot ?? 0;
+    const activePUs = this.powerUpManager.allPowerUps.filter(p => p.active).map(p => ({ x: p.x, z: p.z }));
 
     for (const bike of this.bikes) {
       if (!bike.alive) {
-        bike.update(dt, { left: false, right: false, jump: false, boost: false }, this.trails);
+        bike.update(dt, NO_INPUT, this.trails);
         continue;
       }
 
       let input;
       if (this.aiControllers.has(bike.playerIndex)) {
-        // AI
         input = this.aiControllers.get(bike.playerIndex)!.getInput(
-          bike, this.trails, this.elapsedTime,
-          this.powerUps.filter(p => p.active).map(p => ({ x: p.x, z: p.z })),
+          bike, this.trails, this.elapsedTime, activePUs,
         );
       } else if (bike.playerIndex === localSlot) {
-        // Local host input
         input = this.input.getInput(0); // Host always uses P1 keys
       } else {
-        // Remote peer input
         const peerEntry = this.net.lobbyState.players.find(p => p.slot === bike.playerIndex);
-        if (peerEntry) {
-          input = this.net.peerInputs.get(peerEntry.peerId) || { left: false, right: false, jump: false, boost: false };
-        } else {
-          input = { left: false, right: false, jump: false, boost: false };
-        }
+        input = peerEntry
+          ? this.net.peerInputs.get(peerEntry.peerId) || NO_INPUT
+          : NO_INPUT;
       }
 
       bike.update(dt, input, this.trails);
     }
 
-    this.updatePowerUps(dt);
+    const broadcastEvent = (e: NetEvent) => this.net.broadcastEvent(e);
+    this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, true, broadcastEvent, this.lastBroadcastTrailLen);
     this.hud.update(this.bikes, this.round.roundNumber, this.config.roundsToWin);
-    this.minimap.update(this.bikes, this.powerUps);
+    this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
     this.hud.updatePing(this.currentPing);
 
     // Ping peers every 2s
@@ -518,8 +506,8 @@ export class Game {
     const trailLengths = this.bikes.map(b => b.trail.points.length);
 
     // Full trail resync every ~5 seconds (150 ticks at 30Hz) or forced after trail destruction
-    const includeFullTrails = this.hostTick % 150 === 0 || this.forceFullTrailResync;
-    this.forceFullTrailResync = false;
+    const includeFullTrails = this.hostTick % 150 === 0 || this.powerUpManager.forceFullTrailResync;
+    this.powerUpManager.forceFullTrailResync = false;
 
     const state: NetGameState = {
       tick: this.hostTick,
@@ -559,7 +547,7 @@ export class Game {
 
     for (const bike of this.bikes) {
       if (!bike.alive) {
-        bike.update(dt, { left: false, right: false, jump: false, boost: false }, this.trails);
+        bike.update(dt, NO_INPUT, this.trails);
         continue;
       }
       if (bike.isLocalPredicted) {
@@ -572,12 +560,10 @@ export class Game {
     }
 
     // Power-up visual updates only (client doesn't run spawn/pickup logic)
-    for (const pu of this.powerUps) {
-      if (pu.active) pu.update(dt, this.elapsedTime);
-    }
+    this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, false, null, this.lastBroadcastTrailLen);
 
     this.hud.update(this.bikes, this.round.roundNumber, this.config.roundsToWin);
-    this.minimap.update(this.bikes, this.powerUps);
+    this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
     this.hud.updatePing(this.currentPing);
 
     // Ping host every 2s
@@ -678,7 +664,7 @@ export class Game {
 
       case 'round-start':
         // Host initiated a new round — reset bikes
-        this.disposePowerUps();
+        this.powerUpManager.dispose();
         this.scoreboard.hideAll();
         this.round.roundNumber = event.round ?? this.round.roundNumber;
         for (const bike of this.bikes) {
@@ -743,24 +729,8 @@ export class Game {
         break;
 
       case 'powerup-spawn':
-        if (event.powerupX != null && event.powerupZ != null && event.powerupId != null) {
-          const puType = (event.powerupType as PowerUpType) || 'invulnerability';
-          const pu = new PowerUp(event.powerupId, puType, event.powerupX, event.powerupZ, this.ctx.scene);
-          this.powerUps.push(pu);
-        }
-        break;
-
       case 'powerup-pickup':
-        if (event.powerupId != null) {
-          const pu = this.powerUps.find(p => p.id === event.powerupId);
-          if (pu?.active) pu.collect();
-        }
-        if (event.bikeIndex != null) {
-          const bike = this.bikes.find(b => b.playerIndex === event.bikeIndex);
-          if (bike) {
-            bike.grantInvulnerability();
-          }
-        }
+        this.powerUpManager.handleNetEvent(event, this.bikes);
         break;
 
       case 'trail-destroy':
@@ -848,104 +818,6 @@ export class Game {
         );
       }, 1500);
     }
-  }
-
-  // --- Power-Up Management ---
-
-  private updatePowerUps(dt: number): void {
-    // Update visuals (all modes)
-    for (const pu of this.powerUps) {
-      if (pu.active) pu.update(dt, this.elapsedTime);
-    }
-
-    // Only host/local runs spawn and pickup logic
-    const isAuthoritative = this.config.mode !== 'online' || this.net.isHost;
-    if (!isAuthoritative) return;
-
-    // Spawn timer
-    this.powerUpSpawnTimer += dt;
-    const activeCount = this.powerUps.filter(p => p.active).length;
-    if (activeCount < POWERUP_MAX_ACTIVE && this.powerUpSpawnTimer >= POWERUP_SPAWN_INTERVAL) {
-      this.powerUpSpawnTimer = 0;
-      this.spawnPowerUp();
-    }
-
-    // Pickup check
-    for (const bike of this.bikes) {
-      if (!bike.alive) continue;
-      for (const pu of this.powerUps) {
-        if (!pu.active) continue;
-        if (pu.checkPickup(bike.position.x, bike.position.z)) {
-          pu.collect();
-          bike.grantInvulnerability();
-
-          // Broadcast pickup event
-          if (this.config.mode === 'online' && this.net.isHost) {
-            this.net.broadcastEvent({
-              type: 'powerup-pickup',
-              powerupId: pu.id,
-              bikeIndex: bike.playerIndex,
-              powerupType: pu.type,
-            });
-          }
-          break;
-        }
-      }
-    }
-
-    // Trail destruction from invulnerable bikes
-    for (const bike of this.bikes) {
-      if (bike.lastTrailDestruction) {
-        const hit = bike.lastTrailDestruction;
-        bike.lastTrailDestruction = null;
-
-        // Broadcast trail-destroy event
-        if (this.config.mode === 'online' && this.net.isHost) {
-          this.net.broadcastEvent({
-            type: 'trail-destroy',
-            trailIndex: hit.trailIndex,
-            destroyX: hit.contactX,
-            destroyZ: hit.contactZ,
-            destroyRadius: TRAIL_DESTROY_RADIUS,
-          });
-        }
-
-        // Reset trail broadcast tracking for the affected trail
-        if (this.lastBroadcastTrailLen[hit.trailIndex] !== undefined) {
-          this.lastBroadcastTrailLen[hit.trailIndex] = this.trails[hit.trailIndex]?.points.length ?? 0;
-        }
-        this.forceFullTrailResync = true;
-      }
-    }
-  }
-
-  private spawnPowerUp(): void {
-    const pos = generateSpawnPosition();
-    const id = this.nextPowerUpId++;
-    const puType: PowerUpType = 'invulnerability';
-    const pu = new PowerUp(id, puType, pos.x, pos.z, this.ctx.scene);
-    this.powerUps.push(pu);
-
-    // Broadcast spawn event
-    if (this.config.mode === 'online' && this.net.isHost) {
-      this.net.broadcastEvent({
-        type: 'powerup-spawn',
-        powerupId: id,
-        powerupX: pos.x,
-        powerupZ: pos.z,
-        powerupType: puType,
-      });
-    }
-  }
-
-  private disposePowerUps(): void {
-    for (const pu of this.powerUps) {
-      pu.dispose(this.ctx.scene);
-    }
-    this.powerUps = [];
-    this.nextPowerUpId = 0;
-    this.powerUpSpawnTimer = 0;
-    this.forceFullTrailResync = false;
   }
 
   // --- Disconnect Handling ---

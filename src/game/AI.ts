@@ -1,4 +1,4 @@
-import { PlayerInput } from './Input';
+import { PlayerInput, NO_INPUT } from './Input';
 import { Bike } from './Bike';
 import { Trail } from './Trail';
 import { ARENA_HALF, TRAIL_HEIGHT, BIKE_SPEED, BIKE_COLLISION_HEIGHT } from './constants';
@@ -21,7 +21,7 @@ const AI_CONFIGS: Record<AIDifficulty, AIConfig> = {
 export class AIController {
   private config: AIConfig;
   private lastDecisionTime = 0;
-  private currentInput: PlayerInput = { left: false, right: false, jump: false, boost: false };
+  private currentInput: PlayerInput = NO_INPUT;
   private steerBias = 0;
 
   constructor(difficulty: AIDifficulty) {
@@ -54,7 +54,7 @@ export class AIController {
       }
     }
 
-    const input: PlayerInput = { left: false, right: false, jump: false, boost: false };
+    const input: PlayerInput = { ...NO_INPUT };
 
     // Steer toward best direction
     if (bestIdx === 0) {

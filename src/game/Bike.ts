@@ -1,16 +1,19 @@
 import * as THREE from 'three';
 import {
-  BIKE_SPEED, TURN_RATE, TRAIL_HEIGHT,
+  BIKE_SPEED, TURN_RATE,
   JUMP_INITIAL_VY, GRAVITY, JUMP_COOLDOWN,
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
   NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
-  ARENA_HALF, INVULNERABILITY_DURATION, TRAIL_DESTROY_RADIUS,
+  ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
 } from './constants';
 import { Trail } from './Trail';
 import { PlayerInput } from './Input';
 import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision } from './Collision';
 import { Vec2 } from '../types';
+import type { PowerUpEffect } from './powerups/PowerUpEffect';
+import { createEffect } from './powerups/PowerUpRegistry';
+import { TrailParticles, DeathParticles } from './BikeParticles';
 
 export class Bike {
   mesh: THREE.Group;
@@ -27,9 +30,18 @@ export class Bike {
   playerIndex: number;
   color: string;
 
-  // Invulnerability
-  invulnerable = false;
-  invulnerableTimer = 0;
+  // Generic effect slot
+  activeEffect: PowerUpEffect | null = null;
+  effectTimer = 0;
+
+  // Backwards-compatible getters for invulnerability
+  get invulnerable(): boolean {
+    return this.activeEffect?.type === 'invulnerability' && this.effectTimer > 0;
+  }
+  get invulnerableTimer(): number {
+    return this.invulnerable ? this.effectTimer : 0;
+  }
+
   lastTrailDestruction: { trailIndex: number; contactX: number; contactZ: number } | null = null;
 
   // Double jump (innate ability with cooldown)
@@ -50,21 +62,12 @@ export class Bike {
 
   private netBuffer: Array<{ x: number; z: number; y: number; angle: number; vy: number; grounded: boolean; tick: number; time: number }> = [];
   private bodyMesh: THREE.Mesh;
+  private bikeLight: THREE.PointLight;
   private scene: THREE.Scene;
 
-  // Particles
-  private trailParticles: THREE.Points;
-  private particlePositions: Float32Array;
-  private particleSpeeds: Float32Array;
-  private particleLifetimes: Float32Array;
-  private maxParticles = 50;
-
-  // Death particles
-  private deathParticles: THREE.Points | null = null;
-  private deathPositions: Float32Array | null = null;
-  private deathVelocities: Float32Array | null = null;
-  private deathLifetimes: Float32Array | null = null;
-  private deathMaxParticles = 80;
+  // Particles (delegated)
+  private trailParticles: TrailParticles;
+  private deathParticles: DeathParticles | null = null;
 
   constructor(
     playerIndex: number,
@@ -127,9 +130,9 @@ export class Bike {
     this.mesh.add(rearWheel);
 
     // Bike glow point light
-    const bikeLight = new THREE.PointLight(new THREE.Color(color), 2, 15);
-    bikeLight.position.set(0, 1, 0);
-    this.mesh.add(bikeLight);
+    this.bikeLight = new THREE.PointLight(new THREE.Color(color), 2, 15);
+    this.bikeLight.position.set(0, 1, 0);
+    this.mesh.add(this.bikeLight);
 
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.angle;
@@ -139,27 +142,12 @@ export class Bike {
     this.trail = new Trail(color, scene);
 
     // Trail spawn particles
-    this.particlePositions = new Float32Array(this.maxParticles * 3);
-    this.particleSpeeds = new Float32Array(this.maxParticles * 3);
-    this.particleLifetimes = new Float32Array(this.maxParticles);
-    const particleGeo = new THREE.BufferGeometry();
-    particleGeo.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
-    const particleMat = new THREE.PointsMaterial({
-      color: new THREE.Color(color),
-      size: 0.3,
-      transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    this.trailParticles = new THREE.Points(particleGeo, particleMat);
-    this.trailParticles.frustumCulled = false;
-    scene.add(this.trailParticles);
+    this.trailParticles = new TrailParticles(color, scene);
   }
 
   update(dt: number, input: PlayerInput, allTrails: Trail[], skipCollision = false): void {
     if (!this.alive) {
-      this.updateDeathParticles(dt);
+      this.deathParticles?.update(dt);
       return;
     }
 
@@ -227,13 +215,10 @@ export class Bike {
 
     const newPos: Vec2 = { x: this.position.x, z: this.position.z };
 
-    // Invulnerability timer
-    if (this.invulnerable) {
-      this.invulnerableTimer -= dt;
-      if (this.invulnerableTimer <= 0) {
-        this.invulnerable = false;
-        this.invulnerableTimer = 0;
-        this.restoreNormalVisuals();
+    // Active effect update
+    if (this.activeEffect) {
+      if (!this.activeEffect.onUpdate(this, dt)) {
+        this.activeEffect.onExpire(this);
       }
     }
 
@@ -273,11 +258,6 @@ export class Bike {
       }
     }
 
-    // Rainbow visual update while invulnerable
-    if (this.invulnerable) {
-      this.updateInvulnerabilityVisual();
-    }
-
     // Update trail (follows bike Y for 3D arcs)
     this.trail.addPoint(this.position.x, this.position.y, this.position.z);
 
@@ -308,139 +288,41 @@ export class Bike {
     }
 
     // Spawn trail particles
-    this.updateTrailParticles(dt);
-  }
-
-  private updateTrailParticles(dt: number): void {
-    const posArr = this.particlePositions;
-    const spdArr = this.particleSpeeds;
-    const lifeArr = this.particleLifetimes;
-
-    // Update existing
-    for (let i = 0; i < this.maxParticles; i++) {
-      if (lifeArr[i] > 0) {
-        lifeArr[i] -= dt;
-        posArr[i * 3] += spdArr[i * 3] * dt;
-        posArr[i * 3 + 1] += spdArr[i * 3 + 1] * dt;
-        posArr[i * 3 + 2] += spdArr[i * 3 + 2] * dt;
-      }
-    }
-
-    // Spawn new at bike rear
-    if (this.grounded || this.position.y < 1) {
-      for (let i = 0; i < this.maxParticles; i++) {
-        if (lifeArr[i] <= 0) {
-          const rear = -1.0;
-          const rx = this.position.x - Math.sin(this.angle) * rear;
-          const rz = this.position.z - Math.cos(this.angle) * rear;
-          posArr[i * 3] = rx + (Math.random() - 0.5) * 0.5;
-          posArr[i * 3 + 1] = Math.random() * TRAIL_HEIGHT;
-          posArr[i * 3 + 2] = rz + (Math.random() - 0.5) * 0.5;
-          spdArr[i * 3] = (Math.random() - 0.5) * 2;
-          spdArr[i * 3 + 1] = Math.random() * 3;
-          spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2;
-          lifeArr[i] = 0.3 + Math.random() * 0.5;
-          break; // one per frame
-        }
-      }
-    }
-
-    (this.trailParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
   }
 
   grantInvulnerability(): void {
-    this.invulnerable = true;
-    this.invulnerableTimer = INVULNERABILITY_DURATION;
+    const effect = createEffect('invulnerability');
+    if (effect) {
+      effect.onGrant(this);
+    }
   }
 
-  private updateInvulnerabilityVisual(): void {
-    const t = performance.now() / 1000;
-    const hue = (t * 4) % 1.0;
-    const blink = Math.sin(t * 5 * Math.PI * 2) > 0 ? 1.0 : 0.6;
-    const color = new THREE.Color().setHSL(hue, 1.0, 0.5 * blink);
-
+  setBodyColor(color: THREE.Color, emissiveIntensity: number): void {
     const mat = this.bodyMesh.material as THREE.MeshStandardMaterial;
     mat.color.copy(color);
     mat.emissive.copy(color);
-    mat.emissiveIntensity = 0.8;
-
-    // Update the existing bike point light (child index 3)
-    const bikeLight = this.mesh.children.find(c => c instanceof THREE.PointLight) as THREE.PointLight | undefined;
-    if (bikeLight) {
-      bikeLight.color.copy(color);
-      bikeLight.intensity = 4;
-    }
+    mat.emissiveIntensity = emissiveIntensity;
   }
 
-  private restoreNormalVisuals(): void {
-    const baseColor = new THREE.Color(this.color);
-    const mat = this.bodyMesh.material as THREE.MeshStandardMaterial;
-    mat.color.copy(baseColor);
-    mat.emissive.copy(baseColor);
-    mat.emissiveIntensity = 0.3;
-
-    const bikeLight = this.mesh.children.find(c => c instanceof THREE.PointLight) as THREE.PointLight | undefined;
-    if (bikeLight) {
-      bikeLight.color.copy(baseColor);
-      bikeLight.intensity = 2;
-    }
+  setLightColor(color: THREE.Color, intensity: number): void {
+    this.bikeLight.color.copy(color);
+    this.bikeLight.intensity = intensity;
   }
 
   private die(): void {
     this.alive = false;
     this.mesh.visible = false;
-    this.invulnerable = false;
-    this.invulnerableTimer = 0;
-    this.spawnDeathParticles();
+    this.expireActiveEffect();
+    this.deathParticles = new DeathParticles(
+      this.color, this.position.x, this.position.y, this.position.z, this.scene,
+    );
   }
 
-  private spawnDeathParticles(): void {
-    this.deathPositions = new Float32Array(this.deathMaxParticles * 3);
-    this.deathVelocities = new Float32Array(this.deathMaxParticles * 3);
-    this.deathLifetimes = new Float32Array(this.deathMaxParticles);
-
-    for (let i = 0; i < this.deathMaxParticles; i++) {
-      this.deathPositions[i * 3] = this.position.x + (Math.random() - 0.5) * 2;
-      this.deathPositions[i * 3 + 1] = this.position.y + Math.random() * 2;
-      this.deathPositions[i * 3 + 2] = this.position.z + (Math.random() - 0.5) * 2;
-      this.deathVelocities[i * 3] = (Math.random() - 0.5) * 20;
-      this.deathVelocities[i * 3 + 1] = Math.random() * 15;
-      this.deathVelocities[i * 3 + 2] = (Math.random() - 0.5) * 20;
-      this.deathLifetimes[i] = 0.5 + Math.random() * 1.0;
+  private expireActiveEffect(): void {
+    if (this.activeEffect) {
+      this.activeEffect.onExpire(this);
     }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(this.deathPositions, 3));
-    const mat = new THREE.PointsMaterial({
-      color: new THREE.Color(this.color),
-      size: 0.5,
-      transparent: true,
-      opacity: 1.0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    this.deathParticles = new THREE.Points(geo, mat);
-    this.deathParticles.frustumCulled = false;
-    this.scene.add(this.deathParticles);
-  }
-
-  private updateDeathParticles(dt: number): void {
-    if (!this.deathParticles || !this.deathPositions || !this.deathVelocities || !this.deathLifetimes) return;
-
-    let allDead = true;
-    for (let i = 0; i < this.deathMaxParticles; i++) {
-      if (this.deathLifetimes[i] > 0) {
-        allDead = false;
-        this.deathLifetimes[i] -= dt;
-        this.deathPositions[i * 3] += this.deathVelocities[i * 3] * dt;
-        this.deathPositions[i * 3 + 1] += this.deathVelocities[i * 3 + 1] * dt;
-        this.deathPositions[i * 3 + 2] += this.deathVelocities[i * 3 + 2] * dt;
-        this.deathVelocities[i * 3 + 1] -= GRAVITY * dt;
-      }
-    }
-
-    (this.deathParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-    (this.deathParticles.material as THREE.PointsMaterial).opacity = allDead ? 0 : 0.8;
   }
 
   applyNetState(state: { x: number; z: number; y: number; angle: number; alive: boolean; vy: number; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable?: boolean; invulnerableTimer?: number; doubleJumpCooldown?: number; tick: number }): void {
@@ -482,11 +364,7 @@ export class Bike {
       this.boosting = state.boosting;
       this.boostMeter = state.boostMeter;
       if (state.invulnerable !== undefined) {
-        const wasInvulnerable = this.invulnerable;
-        this.invulnerable = state.invulnerable;
-        this.invulnerableTimer = state.invulnerableTimer ?? 0;
-        if (!wasInvulnerable && this.invulnerable) this.updateInvulnerabilityVisual();
-        if (wasInvulnerable && !this.invulnerable) this.restoreNormalVisuals();
+        this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
       }
       if (state.doubleJumpCooldown !== undefined) {
         this.doubleJumpCooldown = state.doubleJumpCooldown;
@@ -522,15 +400,29 @@ export class Bike {
     this.boosting = state.boosting;
     this.boostMeter = state.boostMeter;
     if (state.invulnerable !== undefined) {
-      const wasInvulnerable = this.invulnerable;
-      this.invulnerable = state.invulnerable;
-      this.invulnerableTimer = state.invulnerableTimer ?? 0;
-      if (!wasInvulnerable && this.invulnerable) this.updateInvulnerabilityVisual();
-      if (wasInvulnerable && !this.invulnerable) this.restoreNormalVisuals();
+      this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
     }
     if (state.doubleJumpCooldown !== undefined) {
       this.doubleJumpCooldown = state.doubleJumpCooldown;
       this.doubleJumpReady = state.doubleJumpCooldown <= 0;
+    }
+  }
+
+  private syncInvulnerabilityFromNet(isInvulnerable: boolean, timer: number): void {
+    const wasInvulnerable = this.invulnerable;
+    if (!wasInvulnerable && isInvulnerable) {
+      // Became invulnerable — create effect
+      const effect = createEffect('invulnerability');
+      if (effect) {
+        effect.onGrant(this);
+        this.effectTimer = timer;
+      }
+    } else if (wasInvulnerable && !isInvulnerable) {
+      // Lost invulnerability
+      this.expireActiveEffect();
+    } else if (isInvulnerable) {
+      // Still invulnerable — sync timer
+      this.effectTimer = timer;
     }
   }
 
@@ -632,12 +524,12 @@ export class Bike {
       this.bodyMesh.rotation.x = 0;
     }
 
-    // Rainbow visual update while invulnerable (for remote bikes)
-    if (this.invulnerable) {
-      this.updateInvulnerabilityVisual();
+    // Effect visual update (for remote bikes)
+    if (this.activeEffect) {
+      this.activeEffect.onUpdate(this, dt);
     }
 
-    this.updateTrailParticles(dt);
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
   }
 
   /** Position for camera targeting — uses smoothed visual position when available */
@@ -658,14 +550,12 @@ export class Bike {
     this.jumpCooldown = 0;
     this.boostMeter = BOOST_MAX;
     this.boosting = false;
-    this.invulnerable = false;
-    this.invulnerableTimer = 0;
+    this.expireActiveEffect();
     this.lastTrailDestruction = null;
     this.doubleJumpReady = true;
     this.doubleJumpCooldown = 0;
     this.usedDoubleJumpThisAirborne = false;
     this.boostRechargeTimer = 0;
-    this.restoreNormalVisuals();
     this.netBuffer = [];
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;
@@ -677,21 +567,17 @@ export class Bike {
 
     // Clean up death particles
     if (this.deathParticles) {
-      this.scene.remove(this.deathParticles);
-      this.deathParticles.geometry.dispose();
-      (this.deathParticles.material as THREE.PointsMaterial).dispose();
+      this.deathParticles.dispose(this.scene);
       this.deathParticles = null;
     }
   }
 
   dispose(scene: THREE.Scene): void {
     scene.remove(this.mesh);
-    scene.remove(this.trailParticles);
+    this.trailParticles.dispose(scene);
     this.trail.dispose(scene);
     if (this.deathParticles) {
-      scene.remove(this.deathParticles);
-      this.deathParticles.geometry.dispose();
-      (this.deathParticles.material as THREE.PointsMaterial).dispose();
+      this.deathParticles.dispose(scene);
     }
   }
 }

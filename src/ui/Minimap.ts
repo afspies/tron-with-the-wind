@@ -1,5 +1,5 @@
 import { Bike } from '../game/Bike';
-import { PowerUp } from '../game/PowerUp';
+import { PowerUp } from '../game/powerups/PowerUp';
 import { ARENA_HALF } from '../game/constants';
 
 const SIZE = 160;
