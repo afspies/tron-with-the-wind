@@ -58,7 +58,7 @@ deploy_web() {
   echo ""
   echo "=== Deploying to Cloudflare Pages ($CLOUDFLARE_PAGES_PROJECT) ==="
 
-  npx wrangler pages deploy apps/web/dist/ --project-name="$CLOUDFLARE_PAGES_PROJECT"
+  npx wrangler pages deploy apps/web/dist/ --project-name="$CLOUDFLARE_PAGES_PROJECT" --branch=main
 
   echo ""
   echo "Web deployed to https://tron.afspies.com"

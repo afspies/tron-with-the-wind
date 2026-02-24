@@ -10,8 +10,8 @@
   "dependencies": {
     "@tron/shared": "*",
     "@tron/game-core": "*",
-    "colyseus": "^0.15.0",
-    "@colyseus/schema": "^2.0.0"
+    "colyseus": "^0.16.0",
+    "@colyseus/schema": "^3.0.0"
   },
   "devDependencies": {
     "tsx": "^4.0.0",
