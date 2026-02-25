@@ -9,13 +9,14 @@ interface KeyMapping {
   right: string;
   jump: string;
   boost: string;
+  drift: string;
 }
 
 const KEY_MAPS: KeyMapping[] = [
-  { left: 'KeyA', right: 'KeyD', jump: 'Space', boost: 'ShiftLeft' },
-  { left: 'ArrowLeft', right: 'ArrowRight', jump: 'Slash', boost: 'ShiftRight' },
-  { left: 'KeyJ', right: 'KeyL', jump: 'KeyH', boost: 'KeyU' },
-  { left: 'Numpad4', right: 'Numpad6', jump: 'Numpad0', boost: 'Numpad1' },
+  { left: 'KeyA', right: 'KeyD', jump: 'Space', boost: 'ShiftLeft', drift: 'KeyF' },
+  { left: 'ArrowLeft', right: 'ArrowRight', jump: 'Slash', boost: 'ShiftRight', drift: 'Period' },
+  { left: 'KeyJ', right: 'KeyL', jump: 'KeyH', boost: 'KeyU', drift: 'KeyK' },
+  { left: 'Numpad4', right: 'Numpad6', jump: 'Numpad0', boost: 'Numpad1', drift: 'Numpad5' },
 ];
 
 export class InputManager {
@@ -39,6 +40,7 @@ export class InputManager {
       right: this.keys.has(map.right) || !!this.virtualInputs.get('right'),
       jump: this.keys.has(map.jump) || !!this.virtualInputs.get('jump'),
       boost: this.keys.has(map.boost) || !!this.virtualInputs.get('boost'),
+      drift: this.keys.has(map.drift) || !!this.virtualInputs.get('drift'),
     };
   }
 

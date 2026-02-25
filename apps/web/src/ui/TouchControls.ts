@@ -37,10 +37,13 @@ export class TouchControls {
 
     const btnJump = this.makeButton('touch-btn touch-action', 'JUMP');
     const btnBoost = this.makeButton('touch-btn touch-action', 'BOOST');
+    const btnDrift = this.makeButton('touch-btn touch-action', 'DRIFT');
 
     this.bindTouch(btnJump, 'jump');
     this.bindTouch(btnBoost, 'boost');
+    this.bindTouch(btnDrift, 'drift');
 
+    rightZone.appendChild(btnDrift);
     rightZone.appendChild(btnBoost);
     rightZone.appendChild(btnJump);
 

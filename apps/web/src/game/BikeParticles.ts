@@ -27,7 +27,7 @@ export class TrailParticles {
     scene.add(this.points);
   }
 
-  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean): void {
+  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean, drifting = false): void {
     const posArr = this.positions;
     const spdArr = this.speeds;
     const lifeArr = this.lifetimes;
@@ -42,21 +42,25 @@ export class TrailParticles {
       }
     }
 
-    // Spawn new at bike rear
+    // Spawn new at bike rear: 3x rate + wider spread + faster when drifting
+    const spawnCount = drifting ? 3 : 1;
     if (grounded || bikeY < 1) {
-      for (let i = 0; i < this.maxParticles; i++) {
+      let spawned = 0;
+      for (let i = 0; i < this.maxParticles && spawned < spawnCount; i++) {
         if (lifeArr[i] <= 0) {
           const rear = -1.0;
           const rx = bikeX - Math.sin(bikeAngle) * rear;
           const rz = bikeZ - Math.cos(bikeAngle) * rear;
-          posArr[i * 3] = rx + (Math.random() - 0.5) * 0.5;
+          const spread = drifting ? 1.5 : 0.5;
+          const speedScale = drifting ? 2.0 : 1.0;
+          posArr[i * 3] = rx + (Math.random() - 0.5) * spread;
           posArr[i * 3 + 1] = Math.random() * TRAIL_HEIGHT;
-          posArr[i * 3 + 2] = rz + (Math.random() - 0.5) * 0.5;
-          spdArr[i * 3] = (Math.random() - 0.5) * 2;
-          spdArr[i * 3 + 1] = Math.random() * 3;
-          spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2;
+          posArr[i * 3 + 2] = rz + (Math.random() - 0.5) * spread;
+          spdArr[i * 3] = (Math.random() - 0.5) * 2 * speedScale;
+          spdArr[i * 3 + 1] = Math.random() * 3 * speedScale;
+          spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2 * speedScale;
           lifeArr[i] = 0.3 + Math.random() * 0.5;
-          break; // one per frame
+          spawned++;
         }
       }
     }

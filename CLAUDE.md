@@ -79,6 +79,6 @@ Colyseus 0.16 server-authoritative model:
 - Shared simulation in `@tron/game-core`, used by both server and client
 - Game state machine: MENU, LOBBY, COUNTDOWN, PLAYING, ROUND_END, GAME_OVER
 - New features get their own files in appropriate directories
-- `PlayerInput` includes: left, right, jump, boost
+- `PlayerInput` includes: left, right, jump, boost, drift
 - Trail points are 3D (`TrailPoint {x, y, z}`) for jump arcs
 - Collision is height-aware (bikes can drive under elevated trails)

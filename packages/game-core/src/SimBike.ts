@@ -5,6 +5,8 @@ import {
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
+  DRIFT_TURN_RATE, DRIFT_SPEED_MULTIPLIER, DRIFT_SLIDE_FACTOR,
+  DRIFT_MAX_DURATION, DRIFT_COOLDOWN,
 } from '@tron/shared';
 import { SimTrail } from './SimTrail';
 import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision, type TrailHitInfo } from './Collision';
@@ -43,6 +45,13 @@ export class SimBike {
   usedDoubleJumpThisAirborne = false;
   boostRechargeTimer = 0;
 
+  // Drift state
+  drifting = false;
+  driftTimer = 0;
+  driftCooldown = 0;
+  driftAngle = 0;         // pre-drift heading
+  driftGhostPos: Vec2 = { x: 0, z: 0 }; // ghost trail position
+
   constructor(playerIndex: number, color: string, x: number, z: number, angle: number) {
     this.playerIndex = playerIndex;
     this.color = color;
@@ -55,9 +64,27 @@ export class SimBike {
   update(dt: number, input: PlayerInput, allTrails: SimTrail[], skipCollision = false): void {
     if (!this.alive) return;
 
+    // Drift cooldown
+    this.driftCooldown = Math.max(0, this.driftCooldown - dt);
+
+    // Drift state transitions
+    if (!this.drifting && input.drift && this.grounded && this.driftCooldown <= 0) {
+      // Enter drift
+      this.drifting = true;
+      this.driftTimer = 0;
+      this.driftAngle = this.angle;
+      this.driftGhostPos = { x: this.position.x, z: this.position.z };
+    } else if (this.drifting) {
+      this.driftTimer += dt;
+      if (!input.drift || !this.grounded || this.driftTimer >= DRIFT_MAX_DURATION) {
+        this.endDrift();
+      }
+    }
+
     // Steering
-    if (input.left) this.angle += TURN_RATE * dt;
-    if (input.right) this.angle -= TURN_RATE * dt;
+    const turnRate = this.drifting ? DRIFT_TURN_RATE : TURN_RATE;
+    if (input.left) this.angle += turnRate * dt;
+    if (input.right) this.angle -= turnRate * dt;
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
@@ -73,7 +100,9 @@ export class SimBike {
         this.boostMeter = Math.min(BOOST_MAX, this.boostMeter + rate * dt);
       }
     }
-    const speedMul = this.boosting ? BOOST_MULTIPLIER : 1.0;
+    const boostMul = this.boosting ? BOOST_MULTIPLIER : 1.0;
+    const driftSpeedMul = this.drifting ? DRIFT_SPEED_MULTIPLIER : 1.0;
+    const speedMul = boostMul * driftSpeedMul;
 
     // Forward direction
     const forwardX = Math.sin(this.angle);
@@ -81,9 +110,27 @@ export class SimBike {
 
     const oldPos: Vec2 = { x: this.position.x, z: this.position.z };
 
-    // Move
-    this.position.x += forwardX * this.speed * speedMul * dt;
-    this.position.z += forwardZ * this.speed * speedMul * dt;
+    // Move: during drift, blend facing direction with pre-drift direction
+    if (this.drifting) {
+      const driftForwardX = Math.sin(this.driftAngle);
+      const driftForwardZ = Math.cos(this.driftAngle);
+      const facingWeight = 1.0 - DRIFT_SLIDE_FACTOR;
+      const moveX = forwardX * facingWeight + driftForwardX * DRIFT_SLIDE_FACTOR;
+      const moveZ = forwardZ * facingWeight + driftForwardZ * DRIFT_SLIDE_FACTOR;
+      this.position.x += moveX * this.speed * speedMul * dt;
+      this.position.z += moveZ * this.speed * speedMul * dt;
+
+      // Ghost trail advances straight at pre-drift angle at full speed (no drift penalty)
+      const ghostSpeed = this.speed * boostMul;
+      this.driftGhostPos.x += driftForwardX * ghostSpeed * dt;
+      this.driftGhostPos.z += driftForwardZ * ghostSpeed * dt;
+      // Clamp ghost to arena bounds
+      this.driftGhostPos.x = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.driftGhostPos.x));
+      this.driftGhostPos.z = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.driftGhostPos.z));
+    } else {
+      this.position.x += forwardX * this.speed * speedMul * dt;
+      this.position.z += forwardZ * this.speed * speedMul * dt;
+    }
 
     // Jump
     this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
@@ -133,7 +180,7 @@ export class SimBike {
       }
     }
 
-    // Collision
+    // Collision (uses bike's actual position)
     if (!skipCollision) {
       if (checkWallCollision(this.position.x, this.position.z)) {
         if (this.invulnerable) {
@@ -158,8 +205,19 @@ export class SimBike {
       }
     }
 
-    // Update trail
-    this.trail.addPoint(this.position.x, this.position.y, this.position.z);
+    // Update trail: emit at ghost position during drift, actual position otherwise
+    if (this.drifting) {
+      this.trail.addPoint(this.driftGhostPos.x, this.position.y, this.driftGhostPos.z);
+    } else {
+      this.trail.addPoint(this.position.x, this.position.y, this.position.z);
+    }
+  }
+
+  private endDrift(): void {
+    this.drifting = false;
+    this.driftCooldown = DRIFT_COOLDOWN;
+    // The trail section at the bottom of update() will emit at the bike's actual position
+    // (since drifting is now false), creating the reconnection segment from ghost to bike.
   }
 
   grantInvulnerability(): void {
@@ -190,6 +248,11 @@ export class SimBike {
     this.doubleJumpCooldown = 0;
     this.usedDoubleJumpThisAirborne = false;
     this.boostRechargeTimer = 0;
+    this.drifting = false;
+    this.driftTimer = 0;
+    this.driftCooldown = 0;
+    this.driftAngle = 0;
+    this.driftGhostPos = { x: 0, z: 0 };
     this.trail.reset();
   }
 }

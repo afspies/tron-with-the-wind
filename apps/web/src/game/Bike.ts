@@ -6,6 +6,7 @@ import {
   NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
+  DRIFT_VISUAL_LEAN,
 } from '@tron/shared';
 import type { Vec2, PlayerInput } from '@tron/shared';
 import type { SimBike } from '@tron/game-core';
@@ -14,6 +15,30 @@ import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision } 
 import type { PowerUpEffect } from './powerups/PowerUpEffect';
 import { createEffect } from './powerups/PowerUpRegistry';
 import { TrailParticles, DeathParticles } from './BikeParticles';
+
+/** Shape of the Colyseus BikeSchema as seen by the client */
+interface SchemaBike {
+  x: number; y: number; z: number;
+  angle: number; vy: number;
+  alive: boolean; grounded: boolean;
+  boostMeter: number; boosting: boolean;
+  invulnerable: boolean; invulnerableTimer: number;
+  doubleJumpCooldown: number;
+  drifting: boolean; driftAngle: number; driftTimer: number;
+  trail: Iterable<{ x: number; y: number; z: number }> & { length: number };
+}
+
+/** Shape of a network state update from the host */
+interface NetBikeState {
+  x: number; z: number; y: number;
+  angle: number; vy: number;
+  alive: boolean; grounded: boolean;
+  boostMeter: number; boosting: boolean;
+  invulnerable?: boolean; invulnerableTimer?: number;
+  doubleJumpCooldown?: number;
+  drifting?: boolean; driftAngle?: number; driftTimer?: number;
+  tick: number;
+}
 
 export class Bike {
   mesh: THREE.Group;
@@ -51,6 +76,12 @@ export class Bike {
 
   // Boost recharge delay
   boostRechargeTimer = 0;
+
+  // Drift visual state
+  drifting = false;
+  driftAngle = 0;
+  driftTimer = 0;
+  private driftLeanCurrent = 0; // smoothed body roll
 
   // Client-side prediction: local player's bike runs physics locally
   isLocalPredicted = false;
@@ -287,8 +318,11 @@ export class Bike {
       this.bodyMesh.rotation.x = 0;
     }
 
+    // Drift lean
+    this.updateDriftLean(dt);
+
     // Spawn trail particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
   }
 
   grantInvulnerability(): void {
@@ -329,6 +363,11 @@ export class Bike {
     this.usedDoubleJumpThisAirborne = simBike.usedDoubleJumpThisAirborne;
     this.boostRechargeTimer = simBike.boostRechargeTimer;
 
+    // Sync drift state
+    this.drifting = simBike.drifting;
+    this.driftAngle = simBike.driftAngle;
+    this.driftTimer = simBike.driftTimer;
+
     // Sync invulnerability visual effect
     this.syncInvulnerabilityFromNet(simBike.invulnerable, simBike.invulnerableTimer);
 
@@ -346,11 +385,14 @@ export class Bike {
       this.bodyMesh.rotation.x = 0;
     }
 
+    // Drift lean
+    this.updateDriftLean(dt);
+
     // Sync trail from simulation
     this.trail.syncFromSimTrail(simBike.trail.points);
 
     // Update particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
 
     // Effect visual update
     if (this.activeEffect) {
@@ -359,7 +401,7 @@ export class Bike {
   }
 
   /** Sync visual state from Colyseus server schema (used in online mode) */
-  syncFromServer(schemaBike: { x: number; y: number; z: number; angle: number; vy: number; alive: boolean; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable: boolean; invulnerableTimer: number; doubleJumpCooldown: number; trail: Iterable<{ x: number; y: number; z: number }> & { length: number } }, dt: number): void {
+  syncFromServer(schemaBike: SchemaBike, dt: number): void {
     // Handle death transition
     if (!schemaBike.alive && this.alive) {
       this.alive = false;
@@ -394,6 +436,11 @@ export class Bike {
     this.doubleJumpCooldown = schemaBike.doubleJumpCooldown;
     this.doubleJumpReady = schemaBike.doubleJumpCooldown <= 0;
 
+    // Sync drift state
+    this.drifting = schemaBike.drifting;
+    this.driftAngle = schemaBike.driftAngle;
+    this.driftTimer = schemaBike.driftTimer;
+
     // Sync invulnerability visual effect
     this.syncInvulnerabilityFromNet(schemaBike.invulnerable, schemaBike.invulnerableTimer);
 
@@ -411,6 +458,9 @@ export class Bike {
       this.bodyMesh.rotation.x = 0;
     }
 
+    // Drift lean
+    this.updateDriftLean(dt);
+
     // Sync trail from schema trail array (only when length changes)
     const schemaTrailLen = schemaBike.trail.length;
     if (schemaTrailLen !== this.trail.points.length) {
@@ -422,7 +472,7 @@ export class Bike {
     }
 
     // Update particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
 
     // Effect visual update
     if (this.activeEffect) {
@@ -457,7 +507,22 @@ export class Bike {
     }
   }
 
-  applyNetState(state: { x: number; z: number; y: number; angle: number; alive: boolean; vy: number; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable?: boolean; invulnerableTimer?: number; doubleJumpCooldown?: number; tick: number }): void {
+  /** Smooth body lean during drift and apply to bodyMesh Z rotation */
+  private updateDriftLean(dt: number): void {
+    let targetLean = 0;
+    if (this.drifting) {
+      let angleDiff = this.angle - this.driftAngle;
+      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+      targetLean = Math.max(-1, Math.min(1, angleDiff / Math.PI)) * DRIFT_VISUAL_LEAN;
+    }
+    const rate = this.drifting ? 12 : 8;
+    const blend = 1 - Math.exp(-rate * dt);
+    this.driftLeanCurrent += (targetLean - this.driftLeanCurrent) * blend;
+    this.bodyMesh.rotation.z = this.driftLeanCurrent;
+  }
+
+  applyNetState(state: NetBikeState): void {
     // Death is always authoritative from host
     if (!state.alive && this.alive) {
       this.die();
@@ -502,6 +567,11 @@ export class Bike {
         this.doubleJumpCooldown = state.doubleJumpCooldown;
         this.doubleJumpReady = state.doubleJumpCooldown <= 0;
       }
+      if (state.drifting !== undefined) {
+        this.drifting = state.drifting;
+        this.driftAngle = state.driftAngle ?? 0;
+        this.driftTimer = state.driftTimer ?? 0;
+      }
       return;
     }
 
@@ -537,6 +607,11 @@ export class Bike {
     if (state.doubleJumpCooldown !== undefined) {
       this.doubleJumpCooldown = state.doubleJumpCooldown;
       this.doubleJumpReady = state.doubleJumpCooldown <= 0;
+    }
+    if (state.drifting !== undefined) {
+      this.drifting = state.drifting;
+      this.driftAngle = state.driftAngle ?? 0;
+      this.driftTimer = state.driftTimer ?? 0;
     }
   }
 
@@ -656,12 +731,15 @@ export class Bike {
       this.bodyMesh.rotation.x = 0;
     }
 
+    // Drift lean
+    this.updateDriftLean(dt);
+
     // Effect visual update (for remote bikes)
     if (this.activeEffect) {
       this.activeEffect.onUpdate(this, dt);
     }
 
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
   }
 
   /** Position for camera targeting — uses smoothed visual position when available */
@@ -688,6 +766,10 @@ export class Bike {
     this.doubleJumpCooldown = 0;
     this.usedDoubleJumpThisAirborne = false;
     this.boostRechargeTimer = 0;
+    this.drifting = false;
+    this.driftAngle = 0;
+    this.driftTimer = 0;
+    this.driftLeanCurrent = 0;
     this.netBuffer = [];
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;

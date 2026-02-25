@@ -57,3 +57,11 @@ export const BOOST_RECHARGE_DELAY = 1.5; // seconds after releasing boost before
 
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
+
+// Drift
+export const DRIFT_TURN_RATE = 5.0;          // rad/s (vs normal 3.0)
+export const DRIFT_SPEED_MULTIPLIER = 0.85;  // slight speed penalty for balance
+export const DRIFT_SLIDE_FACTOR = 0.4;       // blend: 60% facing dir + 40% pre-drift dir
+export const DRIFT_MAX_DURATION = 3.0;       // auto-ends drift after 3s
+export const DRIFT_COOLDOWN = 0.5;           // delay before re-drifting
+export const DRIFT_VISUAL_LEAN = 0.35;       // body roll in radians (~20 degrees)
