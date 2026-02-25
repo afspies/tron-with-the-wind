@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-time Hetzner VPS bootstrap for Tron server
+# One-time Hetzner VPS bootstrap for Tron server (prod + staging)
 #
 # Usage: ./setup-vps.sh user@HETZNER_IP
 #
@@ -23,17 +23,23 @@ if [ -z "$REPO_URL" ]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 echo "=== Tron VPS Setup ==="
 echo "  Host: $HOST"
 echo "  Repo: $REPO_URL"
 echo ""
 
-# Install Docker if not present, clone repo, build and start
+# Copy nginx config to VPS
+echo "[0/6] Uploading nginx config..."
+scp "$SCRIPT_DIR/nginx/tron.conf" "$HOST:/tmp/tron.conf"
+
+# Run setup on VPS
 ssh "$HOST" bash -s -- "$REPO_URL" <<'REMOTE_SCRIPT'
 set -euo pipefail
 REPO_URL="$1"
 
-echo "[1/4] Installing Docker..."
+echo "[1/6] Installing Docker..."
 if ! command -v docker &>/dev/null; then
   curl -fsSL https://get.docker.com | sh
   systemctl enable docker
@@ -49,36 +55,74 @@ if ! docker compose version &>/dev/null; then
   exit 1
 fi
 
-echo "[2/4] Cloning repository..."
-if [ -d /opt/tron ]; then
-  echo "  /opt/tron already exists, pulling latest..."
-  cd /opt/tron
+echo "[2/6] Installing nginx..."
+if ! command -v nginx &>/dev/null; then
+  apt-get update -qq
+  apt-get install -y -qq nginx
+  systemctl enable nginx
+  echo "  nginx installed."
+else
+  echo "  nginx already installed."
+fi
+
+# Deploy nginx config
+echo "[3/6] Configuring nginx..."
+cp /tmp/tron.conf /etc/nginx/sites-available/tron.conf
+ln -sf /etc/nginx/sites-available/tron.conf /etc/nginx/sites-enabled/tron.conf
+# Remove default site if it exists
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl restart nginx
+echo "  nginx configured."
+
+echo "[4/6] Setting up production (/opt/tron-prod)..."
+if [ -d /opt/tron-prod ]; then
+  echo "  /opt/tron-prod already exists, pulling latest..."
+  cd /opt/tron-prod
   git pull
 else
-  git clone "$REPO_URL" /opt/tron
-  cd /opt/tron
+  # Migrate from old /opt/tron if it exists
+  if [ -d /opt/tron ]; then
+    echo "  Migrating /opt/tron → /opt/tron-prod..."
+    # Stop old containers first
+    cd /opt/tron && docker compose down 2>/dev/null || true
+    mv /opt/tron /opt/tron-prod
+    cd /opt/tron-prod
+    git pull
+  else
+    git clone "$REPO_URL" /opt/tron-prod
+    cd /opt/tron-prod
+  fi
 fi
+HOST_PORT=8080 docker compose -p tron-prod up -d --build
 
-echo "[3/4] Building and starting server..."
-docker compose up -d --build
-
-echo "[4/4] Verifying..."
-sleep 2
-if curl -sf http://localhost:80 >/dev/null 2>&1 || docker compose ps | grep -q "Up"; then
-  echo ""
-  echo "=== Server is running ==="
-  docker compose ps
+echo "[5/6] Setting up staging (/opt/tron-staging)..."
+if [ -d /opt/tron-staging ]; then
+  echo "  /opt/tron-staging already exists, pulling latest..."
+  cd /opt/tron-staging
+  git pull
 else
-  echo ""
-  echo "Warning: Server may not be ready yet. Check logs with:"
-  echo "  ssh $HOST 'cd /opt/tron && docker compose logs'"
+  git clone "$REPO_URL" /opt/tron-staging
+  cd /opt/tron-staging
 fi
+HOST_PORT=8081 docker compose -p tron-staging up -d --build
+
+echo "[6/6] Verifying..."
+sleep 2
+echo ""
+echo "=== Production ==="
+docker compose -p tron-prod ps
+echo ""
+echo "=== Staging ==="
+docker compose -p tron-staging ps
 REMOTE_SCRIPT
 
 echo ""
 echo "=== VPS setup complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Add DNS A record: tron-server.afspies.com -> VPS IP (proxied via Cloudflare)"
-echo "  2. Set Cloudflare SSL mode to 'Flexible' for tron-server.afspies.com"
-echo "  3. Deploy with: ./deploy.sh server"
+echo "  1. DNS A records (proxied via Cloudflare, SSL mode 'Flexible'):"
+echo "     tron-server.afspies.com         → $(echo "$HOST" | cut -d@ -f2)"
+echo "     tron-staging-server.afspies.com → $(echo "$HOST" | cut -d@ -f2)"
+echo "  2. Deploy with: ./deploy.sh prod   or  ./deploy.sh staging"
+echo "  3. Verify: ./deploy.sh status prod  and  ./deploy.sh status staging"

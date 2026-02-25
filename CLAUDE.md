@@ -1,42 +1,74 @@
 # Tron with the Wind - Claude Code Instructions
 
-See [README.md](./README.md) for full architecture and file map.
+## Monorepo Structure
 
-## Build
+```
+apps/web/          @tron/web       Three.js + Vite frontend
+apps/server/       @tron/server    Colyseus 0.16 game server
+packages/shared/   @tron/shared    Types, constants, protocol enums
+packages/game-core/@tron/game-core Simulation logic (bikes, trails, collision, AI, powerups)
+```
+
+## Build & Dev
 
 ```bash
-npm run dev     # Vite dev server (hot reload)
-npm run build   # tsc + vite build (check for type errors)
+./dev.sh            # Start server (ws://localhost:2567) + web (http://localhost:5173)
+npm run build       # tsc + vite build (apps/web only)
 ```
 
 ## Deploy
 
 ```bash
-curl -sL https://raw.githubusercontent.com/heredotnow/skill/main/here-now/scripts/publish.sh -o /tmp/herenow-publish.sh && chmod +x /tmp/herenow-publish.sh
-HERENOW_API_KEY=$HERE_NOW_KEY /tmp/herenow-publish.sh dist --slug tropic-dahlia-2mgy
+./deploy.sh prod                # Bump version, tag, deploy server + web, push tags
+./deploy.sh prod server         # Bump + deploy server only
+./deploy.sh prod web            # Bump + deploy web only
+./deploy.sh prod --no-bump      # Deploy without version bump (hotfix)
+./deploy.sh staging             # Deploy both to staging (no version bump)
+./deploy.sh staging server      # Deploy staging server only
+./deploy.sh staging web         # Deploy staging web only
+./deploy.sh logs [prod|staging] # Tail server logs
+./deploy.sh status [prod|staging] # Show container status
 ```
 
-Live URL: https://tropic-dahlia-2mgy.here.now/
+Version bumps (prod only): auto-increments patch in `package.json` + `apps/web/package.json`, commits, tags `vX.Y.Z`, pushes after deploy.
 
-## TURN Server
+## Infrastructure
 
-Worker: `https://tron-turn-credentials.alexfspies.workers.dev`
+| | Production | Staging |
+|---|---|---|
+| Web | https://tron.afspies.com | https://tron-staging.afspies.com |
+| Server | wss://tron-server.afspies.com | wss://tron-staging-server.afspies.com |
+| VPS dir | /opt/tron-prod | /opt/tron-staging |
+| Host port | 8080 | 8081 |
 
-Build with TURN enabled:
-```bash
-TURN_WORKER_URL=https://tron-turn-credentials.alexfspies.workers.dev npm run build
-```
+Web hosted on Cloudflare Pages. Server runs on Hetzner VPS (Docker) behind Cloudflare proxy (SSL termination) + nginx reverse proxy.
 
-Worker secrets managed via `cd worker && npx wrangler secret put <NAME>`.
+## Environment Variables
+
+`.env` file (see `.env.example`):
+- `HETZNER_HOST` — SSH target for VPS (e.g. `root@46.225.106.111`)
+- `CLOUDFLARE_PAGES_PROJECT` — CF Pages project name
+- `COLYSEUS_PROD_URL` — Production server WebSocket URL
+- `COLYSEUS_STAGING_URL` — Staging server WebSocket URL
+
+Build-time: `VITE_COLYSEUS_URL` is set by `deploy.sh` from the appropriate env URL.
+
+## Network Protocol
+
+Colyseus 0.16 server-authoritative model:
+- Single room type `'tron'`, filtered by `roomCode`
+- Schema-based state sync (Colyseus `@type()` decorators in `apps/server/src/schema/`)
+- Message types defined in `packages/shared/src/protocol.ts` (`ClientMsg`, `ServerMsg` enums)
+- Server runs authoritative simulation via `@tron/game-core`
+- Clients connect via `colyseus.js` SDK
 
 ## Conventions
 
 - TypeScript strict mode, Three.js for 3D rendering
-- P2P networking via `trystero/torrent` (WebRTC, zero-server)
-- Host-authoritative network model: host runs simulation, clients dead-reckon
-- State broadcast at 20Hz with trail deltas (not full trails)
-- Game state machine in `Game.ts`: MENU -> LOBBY -> COUNTDOWN -> PLAYING -> ROUND_END -> GAME_OVER
-- New features get their own files in appropriate directories (ui/, game/, etc.)
+- Colyseus 0.16 server-authoritative model (not P2P)
+- Shared simulation in `@tron/game-core`, used by server and client
+- Game state machine: MENU → LOBBY → COUNTDOWN → PLAYING → ROUND_END → GAME_OVER
+- New features get their own files in appropriate directories
 - `PlayerInput` includes: left, right, jump, boost
 - Trail points are 3D (`TrailPoint {x, y, z}`) for jump arcs
 - Collision is height-aware (bikes can drive under elevated trails)
