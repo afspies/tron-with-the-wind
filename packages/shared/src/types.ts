@@ -30,24 +30,6 @@ export interface PlayerInput {
 
 export const NO_INPUT: PlayerInput = { left: false, right: false, jump: false, boost: false };
 
-export interface PlayerConfig {
-  id: number;
-  name: string;
-  color: string;
-  isAI: boolean;
-  aiDifficulty?: AIDifficulty;
-}
-
-export interface BikeState {
-  position: Vec3;
-  angle: number;
-  speed: number;
-  vy: number;
-  alive: boolean;
-  grounded: boolean;
-  jumpCooldown: number;
-}
-
 export interface GameConfig {
   humanCount: number;
   aiCount: number;

@@ -11,8 +11,6 @@ export class PowerUpManager {
   private spawnTimer = 0;
   private scene: THREE.Scene;
 
-  forceFullTrailResync = false;
-
   constructor(scene: THREE.Scene) {
     this.scene = scene;
   }
@@ -93,7 +91,6 @@ export class PowerUpManager {
         if (lastBroadcastTrailLen[hit.trailIndex] !== undefined) {
           lastBroadcastTrailLen[hit.trailIndex] = trails[hit.trailIndex]?.points.length ?? 0;
         }
-        this.forceFullTrailResync = true;
       }
     }
   }
@@ -144,7 +141,6 @@ export class PowerUpManager {
   reset(): void {
     this.dispose();
     this.spawnTimer = -POWERUP_SPAWN_DELAY;
-    this.forceFullTrailResync = false;
   }
 
   dispose(): void {
@@ -154,6 +150,5 @@ export class PowerUpManager {
     this.powerUps = [];
     this.nextPowerUpId = 0;
     this.spawnTimer = 0;
-    this.forceFullTrailResync = false;
   }
 }

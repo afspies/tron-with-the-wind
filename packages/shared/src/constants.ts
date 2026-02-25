@@ -1,3 +1,4 @@
+export const MAX_PLAYERS = 4;
 export const ARENA_SIZE = 200;
 export const ARENA_HALF = ARENA_SIZE / 2;
 export const WALL_HEIGHT = 6;
@@ -38,9 +39,7 @@ export const BOOST_DRAIN = 1.0;      // drain rate per second while boosting
 export const BOOST_RECHARGE = 0.6;   // base recharge rate per second (non-linear curve slows at low levels)
 
 export const COUNTDOWN_DURATION = 3;
-export const ROUND_END_DELAY = 3;
 
-export const NET_STATE_INTERVAL = 33; // 30Hz broadcast
 export const NET_TICK_DURATION_MS = 1000 / 30; // ~33.33ms per tick
 export const VISUAL_CORRECTION_RATE = 18; // exponential smoothing speed for visual position
 

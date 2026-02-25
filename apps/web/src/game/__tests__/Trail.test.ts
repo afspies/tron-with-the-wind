@@ -85,7 +85,7 @@ describe('Trail', () => {
     expect(trail.points).toHaveLength(0);
   });
 
-  it('deleteSegmentsInRadius removes points within radius', () => {
+  it('deleteSegmentsInRadius removes points within radius and inserts NaN gap', () => {
     trail.points = [
       { x: 0, y: 0, z: 0 },
       { x: 5, y: 0, z: 0 },
@@ -95,8 +95,11 @@ describe('Trail', () => {
 
     const removed = trail.deleteSegmentsInRadius(5, 0, 3);
     expect(removed).toBe(1);
-    expect(trail.points).toHaveLength(3);
-    expect(trail.points.every(p => p.x !== 5)).toBe(true);
+    // 3 surviving points + 1 NaN gap marker = 4
+    expect(trail.points).toHaveLength(4);
+    expect(trail.points.filter(p => !isNaN(p.x)).every(p => p.x !== 5)).toBe(true);
+    // Gap marker should be between first point and second surviving group
+    expect(isNaN(trail.points[1].x)).toBe(true);
   });
 
   it('deleteSegmentsInRadius returns 0 when nothing in radius', () => {

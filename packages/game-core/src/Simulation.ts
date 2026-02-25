@@ -55,7 +55,7 @@ export class Simulation {
       }
     }
 
-    this.round = new Round(this.bikes.length);
+    this.round = new Round();
     this.powerUps = new PowerUpSim();
     this.lastBroadcastTrailLen = new Array(this.bikes.length).fill(0);
   }

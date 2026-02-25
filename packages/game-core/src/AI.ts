@@ -85,28 +85,14 @@ export class AIController {
       input.right = !input.left;
     }
 
-    if (this.config !== AI_CONFIGS.easy && powerUpPositions && powerUpPositions.length > 0 && !bike.invulnerable && distances[0] > 20) {
-      let closestDist = Infinity;
-      let closestPU: { x: number; z: number } | null = null;
-      for (const pu of powerUpPositions) {
-        const dx = pu.x - bike.position.x;
-        const dz = pu.z - bike.position.z;
-        const d = Math.sqrt(dx * dx + dz * dz);
-        if (d < closestDist) {
-          closestDist = d;
-          closestPU = pu;
-        }
-      }
-      if (closestPU && closestDist < 60) {
-        const toPU = Math.atan2(closestPU.x - bike.position.x, closestPU.z - bike.position.z);
-        let da = toPU - bike.angle;
-        while (da > Math.PI) da -= 2 * Math.PI;
-        while (da < -Math.PI) da += 2 * Math.PI;
-        if (Math.abs(da) > 0.1) {
-          input.left = da > 0;
-          input.right = da < 0;
-        }
-      }
+    // Medium/hard AI steers toward nearby power-ups when safe
+    const canSeekPowerUp = this.config !== AI_CONFIGS.easy
+      && powerUpPositions && powerUpPositions.length > 0
+      && !bike.invulnerable
+      && distances[0] > 20;
+
+    if (canSeekPowerUp) {
+      this.steerTowardPowerUp(input, bike, powerUpPositions!);
     }
 
     if (this.config === AI_CONFIGS.hard && (distances[0] > 40 || bike.invulnerable)) {
@@ -115,6 +101,34 @@ export class AIController {
 
     this.currentInput = input;
     return input;
+  }
+
+  private steerTowardPowerUp(
+    input: PlayerInput,
+    bike: SimBike,
+    powerUpPositions: Array<{ x: number; z: number }>,
+  ): void {
+    let closestDist = Infinity;
+    let closestPU: { x: number; z: number } | null = null;
+    for (const pu of powerUpPositions) {
+      const dx = pu.x - bike.position.x;
+      const dz = pu.z - bike.position.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d < closestDist) {
+        closestDist = d;
+        closestPU = pu;
+      }
+    }
+    if (!closestPU || closestDist >= 60) return;
+
+    const toPU = Math.atan2(closestPU.x - bike.position.x, closestPU.z - bike.position.z);
+    let da = toPU - bike.angle;
+    while (da > Math.PI) da -= 2 * Math.PI;
+    while (da < -Math.PI) da += 2 * Math.PI;
+    if (Math.abs(da) > 0.1) {
+      input.left = da > 0;
+      input.right = da < 0;
+    }
   }
 
   private castRay(
@@ -151,6 +165,7 @@ export class AIController {
         const endIdx = pts.length - 1 - skipEnd;
 
         for (let i = 0; i < endIdx; i++) {
+          if (isNaN(pts[i].x) || isNaN(pts[i + 1].x)) continue;
           if (lineSegmentsIntersect(p1, p2, pts[i], pts[i + 1])) {
             const trailY = (pts[i].y + pts[i + 1].y) / 2;
             if (bikeY < trailY + TRAIL_HEIGHT && bikeY + BIKE_COLLISION_HEIGHT > trailY) {

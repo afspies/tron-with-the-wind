@@ -3,10 +3,11 @@
 # Dev stack for Tron with the Wind
 #
 # Usage:
-#   ./dev.sh          Start server + web (foreground, Ctrl+C stops both)
+#   ./dev.sh          Start server + web in foreground (Ctrl+C stops both)
 #   ./dev.sh start    Same as above
+#   ./dev.sh bg       Start in background
 #   ./dev.sh stop     Stop a backgrounded dev stack
-#   ./dev.sh restart  Restart the dev stack
+#   ./dev.sh restart  Stop then start in foreground
 #
 set -e
 cd "$(dirname "$0")"

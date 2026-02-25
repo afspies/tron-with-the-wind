@@ -1,11 +1,7 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import {
-  PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION,
-  SPAWN_POSITIONS, NO_INPUT,
-} from '@tron/shared';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS } from '@tron/shared';
 import { Simulation } from '@tron/game-core';
-import type { PowerUpEvent } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
 import { setupLighting } from '../scene/Lighting';
@@ -127,6 +123,20 @@ export class Game {
     this.loop();
   }
 
+  /** Copy server scores into the local round tracker. */
+  private syncScoresFromServer(serverState: any): void {
+    for (let i = 0; i < serverState.scores.length && i < this.round.scores.length; i++) {
+      this.round.scores[i] = serverState.scores[i];
+    }
+  }
+
+  /** Hide gameplay HUD elements (used on round/game end). */
+  private hideGameplayUI(): void {
+    this.hud.hide();
+    this.minimap.hide();
+    this.touchControls.hide();
+  }
+
   // --- Colyseus State Handling ---
 
   private handleColyseusStateChange(): void {
@@ -171,14 +181,9 @@ export class Game {
       case 'roundEnd': {
         if (this.state === 'ROUND_END') break; // Already handled
         this.state = 'ROUND_END';
-        this.hud.hide();
-        this.minimap.hide();
-        this.touchControls.hide();
+        this.hideGameplayUI();
 
-        // Sync scores from server
-        for (let i = 0; i < serverState.scores.length && i < this.round.scores.length; i++) {
-          this.round.scores[i] = serverState.scores[i];
-        }
+        this.syncScoresFromServer(serverState);
         this.round.roundNumber = serverState.roundNumber;
 
         // Find round winner (last alive bike)
@@ -202,14 +207,9 @@ export class Game {
 
       case 'gameOver': {
         this.state = 'GAME_OVER';
-        this.hud.hide();
-        this.minimap.hide();
-        this.touchControls.hide();
+        this.hideGameplayUI();
 
-        // Sync scores
-        for (let i = 0; i < serverState.scores.length && i < this.round.scores.length; i++) {
-          this.round.scores[i] = serverState.scores[i];
-        }
+        this.syncScoresFromServer(serverState);
 
         // Find game winner (highest score)
         let gameWinner = -1;
@@ -279,7 +279,7 @@ export class Game {
       this.trails.push(bike.trail);
     }
 
-    this.round = new Round(this.bikes.length);
+    this.round = new Round();
 
     // Camera — always chase cam for online
     const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === localSlot);
@@ -372,7 +372,7 @@ export class Game {
       this.trails.push(bike.trail);
     }
 
-    this.round = new Round(this.bikes.length);
+    this.round = new Round();
 
     // Camera mode
     const localSlot = config.localSlot ?? 0;
@@ -442,13 +442,7 @@ export class Game {
     this.elapsedTime += dt;
 
     switch (this.state) {
-      case 'MENU':
-        break;
-
-      case 'LOBBY':
-        break;
-
-      case 'COUNTDOWN':
+      case 'COUNTDOWN': {
         this.countdownTimer -= dt;
         const display = Math.ceil(this.countdownTimer);
         this.countdownEl.textContent = display > 0 ? String(display) : 'GO!';
@@ -458,6 +452,7 @@ export class Game {
           this.state = 'PLAYING';
         }
         break;
+      }
 
       case 'PLAYING':
         if (this.config.mode === 'online') {
@@ -465,12 +460,6 @@ export class Game {
         } else {
           this.updatePlayingLocal(dt);
         }
-        break;
-
-      case 'ROUND_END':
-        break;
-
-      case 'GAME_OVER':
         break;
     }
 
@@ -555,11 +544,7 @@ export class Game {
     // Update power-up visuals (spawning/pickup handled via broadcast messages)
     this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, false, null, []);
 
-    // Sync scores from server
-    for (let i = 0; i < roomState.scores.length && i < this.round.scores.length; i++) {
-      this.round.scores[i] = roomState.scores[i];
-    }
-
+    this.syncScoresFromServer(roomState);
     this.hud.update(this.bikes, roomState.roundNumber, roomState.roundsToWin);
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
   }
@@ -568,9 +553,7 @@ export class Game {
 
   private handleRoundEnd(winnerIndex: number): void {
     this.state = 'ROUND_END';
-    this.hud.hide();
-    this.minimap.hide();
-    this.touchControls.hide();
+    this.hideGameplayUI();
 
     const gameWinner = this.round.getWinner(this.config.roundsToWin);
     if (gameWinner >= 0) {

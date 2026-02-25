@@ -40,6 +40,7 @@ env_config() {
       SERVER_DIR=/opt/tron-prod
       COLYSEUS_URL="$COLYSEUS_PROD_URL"
       CF_BRANCH=main
+      WEB_URL="https://tron.afspies.com"
       ;;
     staging)
       HOST_PORT=8081
@@ -47,6 +48,7 @@ env_config() {
       SERVER_DIR=/opt/tron-staging
       COLYSEUS_URL="$COLYSEUS_STAGING_URL"
       CF_BRANCH=staging
+      WEB_URL="https://tron-staging.afspies.com"
       ;;
     *)
       echo "Error: Unknown environment '$env'. Use 'prod' or 'staging'."
@@ -74,28 +76,30 @@ bump_version() {
 
   echo "=== Bumping version: $current → $new_version ==="
 
-  # Update root package.json
-  node -e "
-    const fs = require('fs');
-    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-    pkg.version = '$new_version';
-    fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-  "
-
-  # Update apps/web/package.json
-  node -e "
-    const fs = require('fs');
-    const pkg = JSON.parse(fs.readFileSync('apps/web/package.json', 'utf8'));
-    pkg.version = '$new_version';
-    fs.writeFileSync('apps/web/package.json', JSON.stringify(pkg, null, 2) + '\n');
-  "
+  for pkg_file in package.json apps/web/package.json; do
+    node -e "
+      const fs = require('fs');
+      const pkg = JSON.parse(fs.readFileSync('$pkg_file', 'utf8'));
+      pkg.version = '$new_version';
+      fs.writeFileSync('$pkg_file', JSON.stringify(pkg, null, 2) + '\n');
+    "
+  done
 
   git add package.json apps/web/package.json
   git commit -m "Release v${new_version}"
-  git tag -a "v${new_version}" -m "Release v${new_version}"
+  git push
 
   VERSION="$new_version"
-  echo "  Tagged v${new_version}"
+  echo "  Pushed v${new_version} commit"
+}
+
+# Tag after successful deploy (prod only)
+tag_version() {
+  local version="$1"
+  echo "=== Tagging v${version} ==="
+  git tag -a "v${version}" -m "Release v${version}"
+  git push --tags
+  echo "  Pushed tag v${version}"
 }
 
 deploy_server() {
@@ -139,11 +143,7 @@ deploy_web() {
     --branch="$CF_BRANCH"
 
   echo ""
-  if [ "$env" = "prod" ]; then
-    echo "Web deployed to https://tron.afspies.com"
-  else
-    echo "Web deployed to https://tron-staging.afspies.com"
-  fi
+  echo "Web deployed to $WEB_URL"
 }
 
 server_logs() {
@@ -198,12 +198,18 @@ case "$CMD" in
     ENV="$CMD"
     SHOULD_BUMP=false
 
-    # Only bump for prod unless --no-bump
-    if [ "$ENV" = "prod" ] && [ "$NO_BUMP" = "false" ]; then
-      SHOULD_BUMP=true
+    # Confirm production deploy
+    if [ "$ENV" = "prod" ]; then
+      read -rp "Deploy to PRODUCTION? [y/N] " confirm
+      if [[ "$confirm" != [yY] ]]; then
+        echo "Aborted."
+        exit 0
+      fi
     fi
 
-    if [ "$SHOULD_BUMP" = "true" ]; then
+    # Bump version for prod deploys unless --no-bump
+    if [ "$ENV" = "prod" ] && [ "$NO_BUMP" = "false" ]; then
+      SHOULD_BUMP=true
       bump_version
     fi
 
@@ -225,11 +231,10 @@ case "$CMD" in
         ;;
     esac
 
-    # Push tags after successful prod deploy
+    # Tag after successful prod deploy
     if [ "$SHOULD_BUMP" = "true" ]; then
       echo ""
-      echo "=== Pushing version tag ==="
-      git push && git push --tags
+      tag_version "$VERSION"
     fi
     ;;
   logs)

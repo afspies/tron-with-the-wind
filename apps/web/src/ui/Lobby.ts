@@ -141,29 +141,18 @@ export class Lobby {
     this.lobbyDiv.style.display = 'flex';
 
     document.getElementById('lobby-code')!.textContent = code;
-
-    // Show/hide host controls
-    const hostControls = document.getElementById('lobby-host-controls')!;
-    hostControls.style.display = isHost ? 'block' : 'none';
-
-    const startBtn = document.getElementById('btn-lobby-start')!;
-    startBtn.style.display = isHost ? 'block' : 'none';
-
-    const waitMsg = document.getElementById('lobby-wait-msg')!;
-    waitMsg.style.display = isHost ? 'none' : 'block';
-
-    // Initial player list
+    this.updateHostUI(isHost);
     this.updatePlayers(this.colyseus.getLobbyState());
   }
 
   /** Called by Game.ts when Colyseus state changes while lobby is visible */
   refresh(): void {
     if (this.lobbyDiv.style.display === 'none') return;
-    const state = this.colyseus.getLobbyState();
-    this.updatePlayers(state);
+    this.updatePlayers(this.colyseus.getLobbyState());
+    this.updateHostUI(this.colyseus.isHost);
+  }
 
-    // Update host status UI (may change if host disconnects)
-    const isHost = this.colyseus.isHost;
+  private updateHostUI(isHost: boolean): void {
     document.getElementById('lobby-host-controls')!.style.display = isHost ? 'block' : 'none';
     document.getElementById('btn-lobby-start')!.style.display = isHost ? 'block' : 'none';
     document.getElementById('lobby-wait-msg')!.style.display = isHost ? 'none' : 'block';

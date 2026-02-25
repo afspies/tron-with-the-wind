@@ -7,7 +7,7 @@ import {
   DOUBLE_JUMP_COOLDOWN,
 } from '@tron/shared';
 import { SimTrail } from './SimTrail';
-import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision } from './Collision';
+import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision, type TrailHitInfo } from './Collision';
 import type { SimPowerUpEffect } from './powerups/SimPowerUpEffect';
 import { createSimEffect } from './powerups/SimPowerUpRegistry';
 
@@ -36,7 +36,7 @@ export class SimBike {
     return this.invulnerable ? this.effectTimer : 0;
   }
 
-  lastTrailDestruction: { trailIndex: number; contactX: number; contactZ: number } | null = null;
+  lastTrailDestruction: TrailHitInfo | null = null;
 
   doubleJumpReady = true;
   doubleJumpCooldown = 0;
@@ -118,7 +118,9 @@ export class SimBike {
     // Active effect update
     if (this.activeEffect) {
       if (!this.activeEffect.onUpdate(this, dt)) {
-        this.activeEffect.onExpire(this);
+        const effect = this.activeEffect;
+        this.activeEffect = null;
+        effect.onExpire(this);
       }
     }
 
@@ -161,21 +163,14 @@ export class SimBike {
   }
 
   grantInvulnerability(): void {
-    const effect = createSimEffect('invulnerability');
-    if (effect) {
-      effect.onGrant(this);
-    }
+    createSimEffect('invulnerability')?.onGrant(this);
   }
 
   private die(): void {
     this.alive = false;
-    this.expireActiveEffect();
-  }
-
-  private expireActiveEffect(): void {
-    if (this.activeEffect) {
-      this.activeEffect.onExpire(this);
-    }
+    const effect = this.activeEffect;
+    this.activeEffect = null;
+    effect?.onExpire(this);
   }
 
   reset(x: number, z: number, angle: number): void {
@@ -187,7 +182,9 @@ export class SimBike {
     this.jumpCooldown = 0;
     this.boostMeter = BOOST_MAX;
     this.boosting = false;
-    this.expireActiveEffect();
+    const effect = this.activeEffect;
+    this.activeEffect = null;
+    effect?.onExpire(this);
     this.lastTrailDestruction = null;
     this.doubleJumpReady = true;
     this.doubleJumpCooldown = 0;

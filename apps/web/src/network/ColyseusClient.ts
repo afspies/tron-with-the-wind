@@ -1,4 +1,5 @@
 import { Client, Room } from 'colyseus.js';
+import { ClientMsg, ServerMsg } from '@tron/shared';
 import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import type { ChatMessage } from '../ui/Chat';
 
@@ -63,7 +64,7 @@ export class ColyseusClient {
 
   async joinRoom(code: string, options?: { name?: string }): Promise<void> {
     this.roomCode = code.toUpperCase();
-    this.room = await this.client.joinOrCreate('tron', {
+    this.room = await this.client.join('tron', {
       roomCode: this.roomCode,
       ...options,
     });
@@ -83,11 +84,11 @@ export class ColyseusClient {
       this.onStateChange?.();
     });
 
-    this.room.onMessage('chat', (data: ChatMessage) => {
+    this.room.onMessage(ServerMsg.Chat, (data: ChatMessage) => {
       this.onChatReceived?.(data);
     });
 
-    this.room.onMessage('powerupEffect', (data: any) => {
+    this.room.onMessage(ServerMsg.PowerUpEffect, (data: any) => {
       this.onPowerUpEvent?.(data);
     });
 
@@ -107,23 +108,23 @@ export class ColyseusClient {
   }
 
   sendInput(input: PlayerInput): void {
-    this.room?.send('input', input);
+    this.room?.send(ClientMsg.Input, input);
   }
 
   sendChat(text: string): void {
-    this.room?.send('chat', { text });
+    this.room?.send(ClientMsg.Chat, { text });
   }
 
   sendConfig(config: { aiCount?: number; aiDifficulty?: string; roundsToWin?: number }): void {
-    this.room?.send('setConfig', config);
+    this.room?.send(ClientMsg.SetConfig, config);
   }
 
   sendStartGame(): void {
-    this.room?.send('startGame', {});
+    this.room?.send(ClientMsg.StartGame, {});
   }
 
   sendPlayAgain(): void {
-    this.room?.send('playAgain', {});
+    this.room?.send(ClientMsg.PlayAgain, {});
   }
 
   getLocalSlot(): number {
@@ -139,7 +140,7 @@ export class ColyseusClient {
     }
     const state = this.room.state as any;
     const players: LobbyPlayer[] = [];
-    state.players?.forEach((p: any, key: string) => {
+    state.players?.forEach((p: any) => {
       players.push({ sessionId: p.sessionId, slot: p.slot, name: p.name });
     });
     return {

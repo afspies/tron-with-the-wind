@@ -75,36 +75,31 @@ nginx -t
 systemctl restart nginx
 echo "  nginx configured."
 
-echo "[4/6] Setting up production (/opt/tron-prod)..."
-if [ -d /opt/tron-prod ]; then
-  echo "  /opt/tron-prod already exists, pulling latest..."
-  cd /opt/tron-prod
-  git pull
-else
-  # Migrate from old /opt/tron if it exists
-  if [ -d /opt/tron ]; then
-    echo "  Migrating /opt/tron → /opt/tron-prod..."
-    # Stop old containers first
-    cd /opt/tron && docker compose down 2>/dev/null || true
-    mv /opt/tron /opt/tron-prod
-    cd /opt/tron-prod
+# Clone or pull a repo into the given directory
+setup_repo() {
+  local dir="$1"
+  if [ -d "$dir" ]; then
+    echo "  $dir already exists, pulling latest..."
+    cd "$dir"
     git pull
   else
-    git clone "$REPO_URL" /opt/tron-prod
-    cd /opt/tron-prod
+    git clone "$REPO_URL" "$dir"
+    cd "$dir"
   fi
+}
+
+echo "[4/6] Setting up production (/opt/tron-prod)..."
+# Migrate from legacy /opt/tron if it exists
+if [ -d /opt/tron ] && [ ! -d /opt/tron-prod ]; then
+  echo "  Migrating /opt/tron → /opt/tron-prod..."
+  cd /opt/tron && docker compose down 2>/dev/null || true
+  mv /opt/tron /opt/tron-prod
 fi
+setup_repo /opt/tron-prod
 HOST_PORT=8080 docker compose -p tron-prod up -d --build
 
 echo "[5/6] Setting up staging (/opt/tron-staging)..."
-if [ -d /opt/tron-staging ]; then
-  echo "  /opt/tron-staging already exists, pulling latest..."
-  cd /opt/tron-staging
-  git pull
-else
-  git clone "$REPO_URL" /opt/tron-staging
-  cd /opt/tron-staging
-fi
+setup_repo /opt/tron-staging
 HOST_PORT=8081 docker compose -p tron-staging up -d --build
 
 echo "[6/6] Verifying..."

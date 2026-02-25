@@ -52,24 +52,7 @@ export function checkTrailCollision(
   trails: SimTrail[],
   ownTrailIndex: number,
 ): boolean {
-  for (let t = 0; t < trails.length; t++) {
-    const trail = trails[t];
-    const pts = trail.points;
-    const skipEnd = t === ownTrailIndex ? TRAIL_SKIP_SEGMENTS : 0;
-    const endIdx = pts.length - 1 - skipEnd;
-
-    for (let i = 0; i < endIdx; i++) {
-      const u = lineSegmentIntersectParam(oldPos, newPos, pts[i], pts[i + 1]);
-      if (u < 0) continue;
-
-      const trailY = pts[i].y + (pts[i + 1].y - pts[i].y) * u;
-      if (bikeY < trailY + TRAIL_HEIGHT && bikeY + BIKE_COLLISION_HEIGHT > trailY) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  return checkTrailCollisionDetailed(oldPos, newPos, bikeY, trails, ownTrailIndex) !== null;
 }
 
 export interface TrailHitInfo {
@@ -92,6 +75,7 @@ export function checkTrailCollisionDetailed(
     const endIdx = pts.length - 1 - skipEnd;
 
     for (let i = 0; i < endIdx; i++) {
+      if (isNaN(pts[i].x) || isNaN(pts[i + 1].x)) continue;
       const u = lineSegmentIntersectParam(oldPos, newPos, pts[i], pts[i + 1]);
       if (u < 0) continue;
 

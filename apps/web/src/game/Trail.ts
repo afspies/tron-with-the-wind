@@ -81,6 +81,14 @@ export class Trail {
     for (let i = fromSeg; i < totalSegs; i++) {
       const p1 = pts[i];
       const p2 = pts[i + 1];
+      const baseIdx = i * 18;
+
+      // NaN gap marker — emit degenerate (zero-area) triangle
+      if (isNaN(p1.x) || isNaN(p2.x)) {
+        for (let j = 0; j < 18; j++) posArr[baseIdx + j] = 0;
+        for (let j = 0; j < 18; j++) normArr[baseIdx + j] = 0;
+        continue;
+      }
 
       const dx = p2.x - p1.x;
       const dz = p2.z - p1.z;
@@ -94,7 +102,6 @@ export class Trail {
       const h1 = distFromEnd1 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd1 / TRAIL_RAMP_SEGMENTS);
       const h2 = distFromEnd2 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd2 / TRAIL_RAMP_SEGMENTS);
 
-      const baseIdx = i * 18;
       const verts = [
         p1.x, p1.y, p1.z,
         p1.x, p1.y + h1, p1.z,
@@ -123,22 +130,37 @@ export class Trail {
   /** Delete trail points within radius of (cx, cz). Returns count removed. */
   deleteSegmentsInRadius(cx: number, cz: number, radius: number): number {
     const r2 = radius * radius;
-    const before = this.points.length;
-    this.points = this.points.filter(p => {
+    const result: TrailPoint[] = [];
+    let removedAny = false;
+    let removedCount = 0;
+    for (const p of this.points) {
+      if (isNaN(p.x)) {
+        result.push(p);
+        removedAny = false;
+        continue;
+      }
       const dx = p.x - cx;
       const dz = p.z - cz;
-      return dx * dx + dz * dz > r2;
-    });
-    const removed = before - this.points.length;
-    if (removed > 0) {
-      this.lastSamplePos = this.points.length > 0 ? this.points[this.points.length - 1] : null;
+      if (dx * dx + dz * dz <= r2) {
+        removedAny = true;
+        removedCount++;
+      } else {
+        if (removedAny && result.length > 0) {
+          result.push({ x: NaN, y: NaN, z: NaN });
+        }
+        result.push(p);
+        removedAny = false;
+      }
+    }
+    if (removedCount > 0) {
+      this.points = result;
+      this.lastSamplePos = result.length > 0 ? result[result.length - 1] : null;
       this.rebuildSegments(0);
-      // Fix draw range for < 2 points
       if (this.points.length < 2) {
         this.geometry.setDrawRange(0, 0);
       }
     }
-    return removed;
+    return removedCount;
   }
 
   /** Efficiently sync visual trail from simulation trail points */

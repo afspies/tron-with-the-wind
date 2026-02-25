@@ -20,9 +20,7 @@ export class SimTrail {
   }
 
   addPoints(pts: TrailPoint[]): void {
-    for (const p of pts) {
-      this.points.push(p);
-    }
+    this.points.push(...pts);
     if (pts.length > 0) {
       this.lastSamplePos = pts[pts.length - 1];
     }
@@ -35,12 +33,29 @@ export class SimTrail {
 
   deleteSegmentsInRadius(cx: number, cz: number, radius: number): void {
     const r2 = radius * radius;
-    this.points = this.points.filter(p => {
+    const result: TrailPoint[] = [];
+    let removedAny = false;
+    for (const p of this.points) {
+      if (isNaN(p.x)) {
+        // Preserve existing gap markers
+        result.push(p);
+        removedAny = false;
+        continue;
+      }
       const dx = p.x - cx;
       const dz = p.z - cz;
-      return dx * dx + dz * dz > r2;
-    });
-    this.lastSamplePos = this.points.length > 0 ? this.points[this.points.length - 1] : null;
+      if (dx * dx + dz * dz <= r2) {
+        removedAny = true;
+      } else {
+        if (removedAny && result.length > 0) {
+          result.push({ x: NaN, y: NaN, z: NaN });
+        }
+        result.push(p);
+        removedAny = false;
+      }
+    }
+    this.points = result;
+    this.lastSamplePos = result.length > 0 ? result[result.length - 1] : null;
   }
 
   reset(): void {

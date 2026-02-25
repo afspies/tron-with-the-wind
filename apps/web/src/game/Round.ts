@@ -1,13 +1,13 @@
-import { SPAWN_POSITIONS } from '@tron/shared';
+import { SPAWN_POSITIONS, MAX_PLAYERS } from '@tron/shared';
 import { Bike } from './Bike';
 
 export class Round {
   roundNumber: number;
   scores: number[];
 
-  constructor(playerCount: number) {
+  constructor() {
     this.roundNumber = 0;
-    this.scores = new Array(playerCount).fill(0);
+    this.scores = new Array(MAX_PLAYERS).fill(0);
   }
 
   startRound(bikes: Bike[]): void {

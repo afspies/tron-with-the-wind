@@ -24,15 +24,14 @@ A 3D Tron lightcycle battle game built with Three.js, TypeScript, and Colyseus. 
 apps/
   web/src/                  Three.js + Vite frontend
     main.ts                 Entry point
-    constants.ts            Client constants
-    game/                   Game loop, bikes, trails, collision, AI, input, arena, round
+    game/                   Game loop, bikes, trails, collision, AI, input, arena, round, powerups
     network/                Colyseus client connection
     scene/                  Three.js renderer, camera, lighting, environment
-    ui/                     Menu, lobby, HUD, scoreboard, chat, touch controls
+    ui/                     Menu, lobby, HUD, scoreboard, minimap, chat, touch controls
   server/src/               Colyseus 0.16 game server
     index.ts                Server entry point
     TronRoom.ts             Game room logic
-    schema/                 Colyseus schema definitions
+    schema/                 Colyseus schema definitions (TronState.ts)
 
 packages/
   shared/src/               Shared types, constants, protocol enums

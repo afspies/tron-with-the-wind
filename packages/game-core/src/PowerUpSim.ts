@@ -33,8 +33,6 @@ export class PowerUpSim {
   powerUps: SimPowerUp[] = [];
   private nextPowerUpId = 0;
   private spawnTimer = 0;
-  forceFullTrailResync = false;
-
   update(
     dt: number,
     bikes: SimBike[],
@@ -99,9 +97,11 @@ export class PowerUpSim {
         if (lastBroadcastTrailLen[hit.trailIndex] !== undefined) {
           lastBroadcastTrailLen[hit.trailIndex] = trails[hit.trailIndex]?.points.length ?? 0;
         }
-        this.forceFullTrailResync = true;
       }
     }
+
+    // Prune inactive powerups
+    this.powerUps = this.powerUps.filter(p => p.active);
 
     return events;
   }
@@ -110,7 +110,6 @@ export class PowerUpSim {
     this.powerUps = [];
     this.nextPowerUpId = 0;
     this.spawnTimer = -POWERUP_SPAWN_DELAY;
-    this.forceFullTrailResync = false;
   }
 }
 

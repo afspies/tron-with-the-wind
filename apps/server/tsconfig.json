@@ -10,10 +10,14 @@
     "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": false
+    "paths": {
+      "@tron/shared": ["../../packages/shared/src/index.ts"],
+      "@tron/game-core": ["../../packages/game-core/src/index.ts"]
+    }
   },
   "include": [
     "src",

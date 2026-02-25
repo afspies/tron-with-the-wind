@@ -1,13 +1,12 @@
 import { Room, Client } from 'colyseus';
 import { Simulation } from '@tron/game-core';
-import { COUNTDOWN_DURATION, PLAYER_NAMES } from '@tron/shared';
+import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, ClientMsg, ServerMsg } from '@tron/shared';
 import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import {
   TronState, PlayerSchema, BikeSchema, TrailPointSchema, PowerUpSchema,
 } from './schema/TronState';
 
 const SIM_INTERVAL_MS = 33;   // 30 Hz physics
-const MAX_PLAYERS = 4;
 
 export class TronRoom extends Room<TronState> {
   maxClients = MAX_PLAYERS;
@@ -17,11 +16,11 @@ export class TronRoom extends Room<TronState> {
   private playerInputs = new Map<string, PlayerInput>();
   private sessionToSlot = new Map<string, number>();
 
-  onCreate(_options: { roomCode?: string }) {
+  onCreate(_options: { roomCode?: string }): void {
     this.setState(new TronState());
     this.autoDispose = true;
 
-    this.onMessage('input', (client, data: PlayerInput) => {
+    this.onMessage(ClientMsg.Input, (client, data: PlayerInput) => {
       if (this.state.phase !== 'playing') return;
       this.playerInputs.set(client.sessionId, {
         left: !!data.left,
@@ -31,16 +30,16 @@ export class TronRoom extends Room<TronState> {
       });
     });
 
-    this.onMessage('chat', (client, data: { text: string }) => {
+    this.onMessage(ClientMsg.Chat, (client, data: { text: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || !data.text) return;
-      this.broadcast('chat', {
+      this.broadcast(ServerMsg.Chat, {
         name: player.name,
         text: String(data.text).slice(0, 200),
       });
     });
 
-    this.onMessage('setConfig', (client, data: { aiCount?: number; aiDifficulty?: string; roundsToWin?: number }) => {
+    this.onMessage(ClientMsg.SetConfig, (client, data: { aiCount?: number; aiDifficulty?: string; roundsToWin?: number }) => {
       if (client.sessionId !== this.state.hostSessionId) return;
       if (this.state.phase !== 'lobby') return;
 
@@ -55,20 +54,20 @@ export class TronRoom extends Room<TronState> {
       }
     });
 
-    this.onMessage('startGame', (client) => {
+    this.onMessage(ClientMsg.StartGame, (client) => {
       if (client.sessionId !== this.state.hostSessionId) return;
       if (this.state.phase !== 'lobby') return;
       this.startGame();
     });
 
-    this.onMessage('playAgain', (client) => {
+    this.onMessage(ClientMsg.PlayAgain, (client) => {
       if (client.sessionId !== this.state.hostSessionId) return;
       if (this.state.phase !== 'gameOver') return;
       this.startGame();
     });
   }
 
-  onJoin(client: Client, options: { name?: string }) {
+  onJoin(client: Client, options: { name?: string }): void {
     // Assign slot
     const usedSlots = new Set<number>();
     this.state.players.forEach(p => usedSlots.add(p.slot));
@@ -92,7 +91,7 @@ export class TronRoom extends Room<TronState> {
     }
   }
 
-  onLeave(client: Client) {
+  onLeave(client: Client): void {
     const slot = this.sessionToSlot.get(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.sessionToSlot.delete(client.sessionId);
@@ -101,14 +100,14 @@ export class TronRoom extends Room<TronState> {
     // Kill bike if playing
     if (this.simulation && slot != null) {
       const simBike = this.simulation.getBikeBySlot(slot);
-      if (simBike && simBike.alive) {
+      if (simBike?.alive) {
         simBike.alive = false;
       }
     }
 
     // Promote new host if needed
     if (client.sessionId === this.state.hostSessionId && this.state.players.size > 0) {
-      const firstPlayer = Array.from(this.state.players.values())[0];
+      const [firstPlayer] = this.state.players.values();
       if (firstPlayer) {
         this.state.hostSessionId = firstPlayer.sessionId;
       }
@@ -141,6 +140,8 @@ export class TronRoom extends Room<TronState> {
       const bikeSchema = new BikeSchema();
       bikeSchema.slot = simBike.playerIndex;
       this.state.bikes.push(bikeSchema);
+    }
+    for (let i = 0; i < MAX_PLAYERS; i++) {
       this.state.scores.push(0);
     }
 
@@ -202,7 +203,7 @@ export class TronRoom extends Room<TronState> {
         // Handle powerup events
         for (const event of result.powerUpEvents) {
           if (event.type === 'powerup-spawn' || event.type === 'powerup-pickup') {
-            this.broadcast('powerupEffect', event);
+            this.broadcast(ServerMsg.PowerUpEffect, event);
           }
         }
         this.syncPowerUpsToSchema();
@@ -289,6 +290,11 @@ export class TronRoom extends Room<TronState> {
       this.state.powerUps.push(new PowerUpSchema());
     }
 
+    // Shrink schema array to match sim (inactive powerups are pruned)
+    while (this.state.powerUps.length > simPUs.length) {
+      this.state.powerUps.pop();
+    }
+
     for (let i = 0; i < simPUs.length; i++) {
       const sim = simPUs[i];
       const pu = this.state.powerUps[i]!;
@@ -302,8 +308,8 @@ export class TronRoom extends Room<TronState> {
 
   private syncScores(): void {
     if (!this.simulation) return;
-    for (let i = 0; i < this.simulation.round.scores.length && i < this.state.scores.length; i++) {
-      this.state.scores[i] = this.simulation.round.scores[i];
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      this.state.scores[i] = this.simulation.round.scores[i] ?? 0;
     }
   }
 }
