@@ -3,7 +3,7 @@ import {
   BIKE_SPEED, TURN_RATE,
   JUMP_INITIAL_VY, GRAVITY, JUMP_COOLDOWN,
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
-  NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
+  NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE, NET_BUFFER_SIZE, EXTRAP_MAX_TICKS,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
 } from '@tron/shared';
@@ -14,6 +14,45 @@ import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision } 
 import type { PowerUpEffect } from './powerups/PowerUpEffect';
 import { createEffect } from './powerups/PowerUpRegistry';
 import { TrailParticles, DeathParticles } from './BikeParticles';
+
+/** Snapshot pushed into the interpolation buffer for remote bikes. */
+interface NetBufferEntry {
+  x: number;
+  z: number;
+  y: number;
+  angle: number;
+  vy: number;
+  grounded: boolean;
+  speed: number;
+  boosting: boolean;
+  tick: number;
+  time: number;
+}
+
+/** Server-authoritative state applied via Colyseus state change callback. */
+interface NetState {
+  x: number;
+  z: number;
+  y: number;
+  angle: number;
+  alive: boolean;
+  vy: number;
+  grounded: boolean;
+  boostMeter: number;
+  boosting: boolean;
+  invulnerable?: boolean;
+  invulnerableTimer?: number;
+  doubleJumpCooldown?: number;
+  speed?: number;
+  tick: number;
+}
+
+/** Wrap an angle difference into the range [-PI, PI]. */
+function wrapAngle(diff: number): number {
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  return diff;
+}
 
 export class Bike {
   mesh: THREE.Group;
@@ -60,7 +99,7 @@ export class Bike {
   visualAngle: number;
   private visualInitialized = false;
 
-  private netBuffer: Array<{ x: number; z: number; y: number; angle: number; vy: number; grounded: boolean; tick: number; time: number }> = [];
+  private netBuffer: NetBufferEntry[] = [];
   private bodyMesh: THREE.Mesh;
   private bikeLight: THREE.PointLight;
   private scene: THREE.Scene;
@@ -259,16 +298,16 @@ export class Bike {
     }
 
     // Update trail (follows bike Y for 3D arcs)
-    this.trail.addPoint(this.position.x, this.position.y, this.position.z);
+    // Skip for predicted bikes — trail is authoritatively synced from server schema
+    if (!this.isLocalPredicted) {
+      this.trail.addPoint(this.position.x, this.position.y, this.position.z);
+    }
 
     // Update mesh — predicted bikes use visual smoothing for host corrections
     if (this.isLocalPredicted && this.visualInitialized) {
       const blend = 1 - Math.exp(-VISUAL_CORRECTION_RATE * dt);
       this.visualPos.lerp(this.position, blend);
-      let angleDiff = this.angle - this.visualAngle;
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      this.visualAngle += angleDiff * blend;
+      this.visualAngle += wrapAngle(this.angle - this.visualAngle) * blend;
       this.mesh.position.copy(this.visualPos);
       this.mesh.rotation.y = this.visualAngle;
     } else {
@@ -279,13 +318,7 @@ export class Bike {
       this.mesh.rotation.y = this.angle;
     }
 
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
+    this.updatePitchTilt();
 
     // Spawn trail particles
     this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
@@ -337,14 +370,7 @@ export class Bike {
     this.visualAngle = this.angle;
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.angle;
-
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
+    this.updatePitchTilt();
 
     // Sync trail from simulation
     this.trail.syncFromSimTrail(simBike.trail.points);
@@ -402,14 +428,7 @@ export class Bike {
     this.visualAngle = this.angle;
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.angle;
-
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
+    this.updatePitchTilt();
 
     // Sync trail from schema trail array (only when length changes)
     const schemaTrailLen = schemaBike.trail.length;
@@ -457,7 +476,27 @@ export class Bike {
     }
   }
 
-  applyNetState(state: { x: number; z: number; y: number; angle: number; alive: boolean; vy: number; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable?: boolean; invulnerableTimer?: number; doubleJumpCooldown?: number; tick: number }): void {
+  /** Apply pitch tilt to the body mesh based on vertical velocity. */
+  private updatePitchTilt(): void {
+    if (!this.grounded) {
+      this.bodyMesh.rotation.x = -(this.vy / JUMP_INITIAL_VY) * 0.2;
+    } else {
+      this.bodyMesh.rotation.x = 0;
+    }
+  }
+
+  /** Sync optional fields (invulnerability, double-jump) from server state. */
+  private syncOptionalNetState(state: NetState): void {
+    if (state.invulnerable !== undefined) {
+      this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
+    }
+    if (state.doubleJumpCooldown !== undefined) {
+      this.doubleJumpCooldown = state.doubleJumpCooldown;
+      this.doubleJumpReady = state.doubleJumpCooldown <= 0;
+    }
+  }
+
+  applyNetState(state: NetState): void {
     // Death is always authoritative from host
     if (!state.alive && this.alive) {
       this.die();
@@ -484,10 +523,7 @@ export class Bike {
         this.position.y += dy * correction;
         this.position.z += dz * correction;
 
-        let angleDiff = state.angle - this.angle;
-        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        this.angle += angleDiff * correction;
+        this.angle += wrapAngle(state.angle - this.angle) * correction;
       }
 
       // Always sync non-positional state from host
@@ -495,13 +531,7 @@ export class Bike {
       this.grounded = state.grounded;
       this.boosting = state.boosting;
       this.boostMeter = state.boostMeter;
-      if (state.invulnerable !== undefined) {
-        this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
-      }
-      if (state.doubleJumpCooldown !== undefined) {
-        this.doubleJumpCooldown = state.doubleJumpCooldown;
-        this.doubleJumpReady = state.doubleJumpCooldown <= 0;
-      }
+      this.syncOptionalNetState(state);
       return;
     }
 
@@ -517,27 +547,20 @@ export class Bike {
       this.mesh.position.copy(this.position);
       this.mesh.rotation.y = this.angle;
     }
-    // Push to interpolation buffer (keep last 3 for smooth interpolation)
+    // Push to interpolation buffer
     this.netBuffer.push({
       x: state.x, z: state.z, y: state.y, angle: state.angle,
       vy: state.vy, grounded: state.grounded,
+      speed: state.speed ?? BIKE_SPEED, boosting: state.boosting,
       tick: state.tick,
       time: performance.now(),
     });
-    // With 3 buffered states, we interpolate between [0] and [1] (one tick behind),
-    // giving the newest state [2] time to arrive before we need it.
-    if (this.netBuffer.length > 3) {
+    if (this.netBuffer.length > NET_BUFFER_SIZE) {
       this.netBuffer.shift();
     }
     this.boosting = state.boosting;
     this.boostMeter = state.boostMeter;
-    if (state.invulnerable !== undefined) {
-      this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
-    }
-    if (state.doubleJumpCooldown !== undefined) {
-      this.doubleJumpCooldown = state.doubleJumpCooldown;
-      this.doubleJumpReady = state.doubleJumpCooldown <= 0;
-    }
+    this.syncOptionalNetState(state);
   }
 
   private syncInvulnerabilityFromNet(isInvulnerable: boolean, timer: number): void {
@@ -578,24 +601,20 @@ export class Bike {
         this.position.x = a.x + (b.x - a.x) * t;
         this.position.z = a.z + (b.z - a.z) * t;
         this.position.y = a.y + (b.y - a.y) * t;
-
-        let da = b.angle - a.angle;
-        while (da > Math.PI) da -= 2 * Math.PI;
-        while (da < -Math.PI) da += 2 * Math.PI;
-        this.angle = a.angle + da * t;
-
+        this.angle = a.angle + wrapAngle(b.angle - a.angle) * t;
         this.vy = a.vy + (b.vy - a.vy) * t;
         this.grounded = t < 0.5 ? a.grounded : b.grounded;
       } else if (renderTick > b.tick) {
         // Extrapolation: renderTick ahead of buffer, no newer state yet.
-        // Use boost-aware speed; cap at 1 tick to avoid overshooting turns.
         const extraTicks = renderTick - b.tick;
-        const cappedSec = Math.min(extraTicks * (NET_TICK_DURATION_MS / 1000), NET_TICK_DURATION_MS / 1000);
-        const speed = this.boosting ? BIKE_SPEED * BOOST_MULTIPLIER : BIKE_SPEED;
-        this.position.x = b.x + Math.sin(b.angle) * speed * cappedSec;
-        this.position.z = b.z + Math.cos(b.angle) * speed * cappedSec;
-        this.position.y = b.y;
-        this.angle = b.angle;
+        if (extraTicks <= EXTRAP_MAX_TICKS) {
+          const cappedSec = extraTicks * (NET_TICK_DURATION_MS / 1000);
+          this.position.x = b.x + Math.sin(b.angle) * b.speed * cappedSec;
+          this.position.z = b.z + Math.cos(b.angle) * b.speed * cappedSec;
+          this.position.y = b.y;
+          this.angle = b.angle;
+        }
+        // Beyond EXTRAP_MAX_TICKS: freeze at last known position (already set)
         this.vy = b.vy;
         this.grounded = b.grounded;
       } else {
@@ -615,14 +634,11 @@ export class Bike {
       const elapsed = performance.now() - a.time;
       const t = duration > 0 ? Math.min(elapsed / duration, 1.5) : 1.0;
 
-      this.position.x = a.x + (b.x - a.x) * Math.min(t, 1.0);
-      this.position.z = a.z + (b.z - a.z) * Math.min(t, 1.0);
-      this.position.y = a.y + (b.y - a.y) * Math.min(t, 1.0);
-
-      let da = b.angle - a.angle;
-      while (da > Math.PI) da -= 2 * Math.PI;
-      while (da < -Math.PI) da += 2 * Math.PI;
-      this.angle = a.angle + da * Math.min(t, 1.0);
+      const clamped = Math.min(t, 1.0);
+      this.position.x = a.x + (b.x - a.x) * clamped;
+      this.position.z = a.z + (b.z - a.z) * clamped;
+      this.position.y = a.y + (b.y - a.y) * clamped;
+      this.angle = a.angle + wrapAngle(b.angle - a.angle) * clamped;
 
       if (t >= 1.0 && this.netBuffer.length >= 3) {
         this.netBuffer.shift();
@@ -634,11 +650,7 @@ export class Bike {
     if (this.visualInitialized) {
       const blend = 1 - Math.exp(-VISUAL_CORRECTION_RATE * dt);
       this.visualPos.lerp(this.position, blend);
-
-      let angleDiff = this.angle - this.visualAngle;
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      this.visualAngle += angleDiff * blend;
+      this.visualAngle += wrapAngle(this.angle - this.visualAngle) * blend;
     } else {
       this.visualPos.copy(this.position);
       this.visualAngle = this.angle;
@@ -647,14 +659,7 @@ export class Bike {
 
     this.mesh.position.copy(this.visualPos);
     this.mesh.rotation.y = this.visualAngle;
-
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
+    this.updatePitchTilt();
 
     // Effect visual update (for remote bikes)
     if (this.activeEffect) {

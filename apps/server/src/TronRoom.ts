@@ -1,6 +1,6 @@
 import { Room, Client } from 'colyseus';
 import { Simulation } from '@tron/game-core';
-import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, ClientMsg, ServerMsg } from '@tron/shared';
+import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, BOOST_MULTIPLIER, ClientMsg, ServerMsg } from '@tron/shared';
 import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import {
   TronState, PlayerSchema, BikeSchema, TrailPointSchema, PowerUpSchema,
@@ -10,7 +10,7 @@ const SIM_INTERVAL_MS = 33;   // 30 Hz physics
 
 export class TronRoom extends Room<TronState> {
   maxClients = MAX_PLAYERS;
-  patchRate = 50;              // 20 Hz state patches
+  patchRate = 33;              // 30 Hz state patches (matches physics tick)
 
   private simulation: Simulation | null = null;
   private playerInputs = new Map<string, PlayerInput>();
@@ -238,6 +238,7 @@ export class TronRoom extends Room<TronState> {
       bike.y = sim.position.y;
       bike.z = sim.position.z;
       bike.angle = sim.angle;
+      bike.speed = sim.speed * (sim.boosting ? BOOST_MULTIPLIER : 1.0);
       bike.vy = sim.vy;
       bike.alive = sim.alive;
       bike.grounded = sim.grounded;

@@ -42,6 +42,9 @@ export const COUNTDOWN_DURATION = 3;
 
 export const NET_TICK_DURATION_MS = 1000 / 30; // ~33.33ms per tick
 export const VISUAL_CORRECTION_RATE = 18; // exponential smoothing speed for visual position
+export const INTERP_DELAY_TICKS = 2;      // Remote bikes render 2 ticks (~66ms) behind
+export const NET_BUFFER_SIZE = 5;          // Keep last 5 states in buffer
+export const EXTRAP_MAX_TICKS = 3;         // Max extrapolation before freezing position
 
 // Power-ups
 export const POWERUP_PICKUP_RADIUS = 3.0;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS } from '@tron/shared';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, INTERP_DELAY_TICKS } from '@tron/shared';
 import { Simulation } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
@@ -42,6 +42,7 @@ export class Game {
   private colyseus: ColyseusClient;
   private lobby: Lobby;
   private lastServerPhase = '';
+  private serverTick = 0;
 
   // Power-ups
   private powerUpManager!: PowerUpManager;
@@ -146,6 +147,23 @@ export class Game {
     // Handle online game phase transitions
     const roomState = this.colyseus.room?.state as any;
     if (!roomState) return;
+
+    // Push server state into each bike's net buffer for interpolation
+    if (this.state === 'PLAYING' || this.state === 'COUNTDOWN') {
+      this.serverTick = roomState.tick;
+      for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {
+        const sb = roomState.bikes[i];
+        this.bikes[i].applyNetState({
+          x: sb.x, y: sb.y, z: sb.z, angle: sb.angle,
+          alive: sb.alive, vy: sb.vy, grounded: sb.grounded,
+          boostMeter: sb.boostMeter, boosting: sb.boosting,
+          invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
+          doubleJumpCooldown: sb.doubleJumpCooldown,
+          speed: sb.speed,
+          tick: roomState.tick,
+        });
+      }
+    }
 
     const serverPhase = roomState.phase as string;
     if (serverPhase !== this.lastServerPhase) {
@@ -278,6 +296,10 @@ export class Game {
       this.bikes.push(bike);
       this.trails.push(bike.trail);
     }
+
+    // Mark local player bike for client-side prediction
+    const localBike = this.bikes.find(b => b.playerIndex === localSlot);
+    if (localBike) localBike.isLocalPredicted = true;
 
     this.round = new Round();
 
@@ -532,13 +554,32 @@ export class Game {
     const input = this.input.getInput(0);
     this.colyseus.sendInput(input);
 
-    // Read server state
     const roomState = this.colyseus.room?.state as any;
     if (!roomState) return;
 
-    // Sync visual bikes from schema
+    const renderTick = this.serverTick - INTERP_DELAY_TICKS;
+
+    for (const bike of this.bikes) {
+      if (bike.isLocalPredicted) {
+        // Local bike: client-side prediction (instant response, no interp delay)
+        bike.update(dt, input, this.trails, true);
+      } else {
+        // Remote bikes: tick-based interpolation
+        bike.deadReckon(dt, renderTick);
+      }
+    }
+
+    // Sync trails from server schema (authoritative)
     for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {
-      this.bikes[i].syncFromServer(roomState.bikes[i], dt);
+      const schemaBike = roomState.bikes[i];
+      const bike = this.bikes[i];
+      if (schemaBike.trail.length !== bike.trail.points.length) {
+        const points: Array<{ x: number; y: number; z: number }> = [];
+        for (const tp of schemaBike.trail) {
+          points.push({ x: tp.x, y: tp.y, z: tp.z });
+        }
+        bike.trail.syncFromSimTrail(points);
+      }
     }
 
     // Update power-up visuals (spawning/pickup handled via broadcast messages)

@@ -1,4 +1,5 @@
 import { Schema, ArraySchema, MapSchema, type } from '@colyseus/schema';
+import { BIKE_SPEED } from '@tron/shared';
 
 export class TrailPointSchema extends Schema {
   @type('float32') x: number = 0;
@@ -12,6 +13,7 @@ export class BikeSchema extends Schema {
   @type('float32') y: number = 0;
   @type('float32') z: number = 0;
   @type('float32') angle: number = 0;
+  @type('float32') speed: number = BIKE_SPEED;
   @type('float32') vy: number = 0;
   @type('boolean') alive: boolean = true;
   @type('boolean') grounded: boolean = true;
