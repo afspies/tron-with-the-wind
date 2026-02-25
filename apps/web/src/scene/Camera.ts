@@ -81,8 +81,8 @@ export class GameCamera {
 
   private updateCameraControls(dt: number): void {
     // Q/E orbit
-    const panLeft = this.keys.has('KeyQ');
-    const panRight = this.keys.has('KeyE');
+    const panLeft = this.keys.has('KeyQ') || this.keys.has('Comma');
+    const panRight = this.keys.has('KeyE') || this.keys.has('Period');
 
     if (panLeft) {
       this.orbitOffset = Math.min(MAX_ORBIT, this.orbitOffset + ORBIT_SPEED * dt);
