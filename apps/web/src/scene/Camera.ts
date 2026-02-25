@@ -127,10 +127,13 @@ export class GameCamera {
     const ang = target.renderAngle;
     const orbitAngle = ang + this.orbitOffset;
 
-    // Chase camera position (third person)
-    const chasePosX = pos.x - Math.sin(orbitAngle) * CHASE_DISTANCE;
-    const chasePosZ = pos.z - Math.cos(orbitAngle) * CHASE_DISTANCE;
-    const chasePosY = CHASE_HEIGHT + pos.y * 0.5;
+    // Chase camera position (third person) — scale with altitude
+    const altitude = pos.y;
+    const extraDist = Math.min(altitude * 0.3, 8);
+    const extraHeight = Math.min(altitude * 0.6, 15);
+    const chasePosX = pos.x - Math.sin(orbitAngle) * (CHASE_DISTANCE + extraDist);
+    const chasePosZ = pos.z - Math.cos(orbitAngle) * (CHASE_DISTANCE + extraDist);
+    const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
     const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
 
     // First person position

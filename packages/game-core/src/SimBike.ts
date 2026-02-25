@@ -5,6 +5,9 @@ import {
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
+  FLIGHT_PITCH_RATE, FLIGHT_PITCH_RETURN_RATE, FLIGHT_MAX_PITCH,
+  FLIGHT_THRUST, FLIGHT_AIR_TURN_MULT, FLIGHT_BOOST_DRAIN_MULT,
+  FLIGHT_LANDING_MAX_PITCH,
 } from '@tron/shared';
 import { SimTrail } from './SimTrail';
 import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision, type TrailHitInfo } from './Collision';
@@ -24,6 +27,9 @@ export class SimBike {
   playerIndex: number;
   color: string;
   trail: SimTrail;
+
+  pitch = 0;
+  flying = false;
 
   activeEffect: SimPowerUpEffect | null = null;
   effectTimer = 0;
@@ -56,13 +62,17 @@ export class SimBike {
     if (!this.alive) return;
 
     // Steering
-    if (input.left) this.angle += TURN_RATE * dt;
-    if (input.right) this.angle -= TURN_RATE * dt;
+    const turnRate = this.flying ? TURN_RATE * FLIGHT_AIR_TURN_MULT : TURN_RATE;
+    if (input.left) this.angle += turnRate * dt;
+    if (input.right) this.angle -= turnRate * dt;
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
+    this.flying = !this.grounded && this.usedDoubleJumpThisAirborne && this.boosting;
+
     if (this.boosting) {
-      this.boostMeter = Math.max(0, this.boostMeter - BOOST_DRAIN * dt);
+      const drain = this.flying ? BOOST_DRAIN * FLIGHT_BOOST_DRAIN_MULT : BOOST_DRAIN;
+      this.boostMeter = Math.max(0, this.boostMeter - drain * dt);
       this.boostRechargeTimer = BOOST_RECHARGE_DELAY;
     } else {
       if (this.boostRechargeTimer > 0) {
@@ -73,7 +83,15 @@ export class SimBike {
         this.boostMeter = Math.min(BOOST_MAX, this.boostMeter + rate * dt);
       }
     }
-    const speedMul = this.boosting ? BOOST_MULTIPLIER : 1.0;
+
+    // Pitch update
+    if (this.flying) {
+      this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
+    } else if (!this.grounded && this.pitch > 0) {
+      this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RETURN_RATE * dt);
+    } else if (this.grounded) {
+      this.pitch = 0;
+    }
 
     // Forward direction
     const forwardX = Math.sin(this.angle);
@@ -82,8 +100,22 @@ export class SimBike {
     const oldPos: Vec2 = { x: this.position.x, z: this.position.z };
 
     // Move
-    this.position.x += forwardX * this.speed * speedMul * dt;
-    this.position.z += forwardZ * this.speed * speedMul * dt;
+    if (this.flying) {
+      // Flying: thrust with pitch affecting horizontal/vertical split
+      const horizSpeed = BIKE_SPEED * BOOST_MULTIPLIER * Math.cos(this.pitch);
+      this.position.x += forwardX * horizSpeed * dt;
+      this.position.z += forwardZ * horizSpeed * dt;
+      this.vy += FLIGHT_THRUST * Math.sin(this.pitch) * dt;
+    } else if (!this.grounded && this.pitch > 0) {
+      // Airborne coasting with residual pitch (no vertical thrust)
+      const horizSpeed = BIKE_SPEED * Math.cos(this.pitch);
+      this.position.x += forwardX * horizSpeed * dt;
+      this.position.z += forwardZ * horizSpeed * dt;
+    } else {
+      const speedMul = this.boosting ? BOOST_MULTIPLIER : 1.0;
+      this.position.x += forwardX * this.speed * speedMul * dt;
+      this.position.z += forwardZ * this.speed * speedMul * dt;
+    }
 
     // Jump
     this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
@@ -106,9 +138,15 @@ export class SimBike {
       this.position.y += this.vy * dt;
       this.vy -= GRAVITY * dt;
       if (this.position.y <= 0) {
+        if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
+          this.die();
+          return;
+        }
         this.position.y = 0;
         this.vy = 0;
         this.grounded = true;
+        this.pitch = 0;
+        this.flying = false;
         this.jumpCooldown = JUMP_COOLDOWN;
       }
     }
@@ -190,6 +228,8 @@ export class SimBike {
     this.doubleJumpCooldown = 0;
     this.usedDoubleJumpThisAirborne = false;
     this.boostRechargeTimer = 0;
+    this.pitch = 0;
+    this.flying = false;
     this.trail.reset();
   }
 }

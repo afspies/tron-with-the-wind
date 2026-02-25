@@ -55,5 +55,14 @@ export const DOUBLE_JUMP_COOLDOWN = 30; // seconds before double-jump is availab
 // Boost recharge
 export const BOOST_RECHARGE_DELAY = 1.5; // seconds after releasing boost before recharge
 
+// Flight (boost during double-jump airborne)
+export const FLIGHT_PITCH_RATE = 2.0;          // rad/s pitch-up while boosting in air
+export const FLIGHT_PITCH_RETURN_RATE = 3.0;   // rad/s pitch returns to 0 when not boosting
+export const FLIGHT_MAX_PITCH = 1.22;          // ~70°, prevents fully vertical flight
+export const FLIGHT_THRUST = 32.0;             // upward acceleration (vs GRAVITY=20)
+export const FLIGHT_AIR_TURN_MULT = 0.5;       // yaw turn rate halved during flight
+export const FLIGHT_BOOST_DRAIN_MULT = 1.3;    // boost drains 30% faster during flight
+export const FLIGHT_LANDING_MAX_PITCH = 0.79;  // ~45°, crash if landing steeper
+
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
