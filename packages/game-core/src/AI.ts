@@ -99,6 +99,11 @@ export class AIController {
       input.boost = true;
     }
 
+    // Prevent AI from accidentally triggering flight
+    if (input.boost && !bike.grounded && bike.usedDoubleJumpThisAirborne) {
+      input.boost = false;
+    }
+
     this.currentInput = input;
     return input;
   }

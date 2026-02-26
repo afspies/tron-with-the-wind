@@ -81,8 +81,8 @@ export class GameCamera {
 
   private updateCameraControls(dt: number): void {
     // Q/E orbit
-    const panLeft = this.keys.has('KeyQ');
-    const panRight = this.keys.has('KeyE');
+    const panLeft = this.keys.has('KeyQ') || this.keys.has('Comma');
+    const panRight = this.keys.has('KeyE') || this.keys.has('Period');
 
     if (panLeft) {
       this.orbitOffset = Math.min(MAX_ORBIT, this.orbitOffset + ORBIT_SPEED * dt);
@@ -127,10 +127,13 @@ export class GameCamera {
     const ang = target.renderAngle;
     const orbitAngle = ang + this.orbitOffset;
 
-    // Chase camera position (third person)
-    const chasePosX = pos.x - Math.sin(orbitAngle) * CHASE_DISTANCE;
-    const chasePosZ = pos.z - Math.cos(orbitAngle) * CHASE_DISTANCE;
-    const chasePosY = CHASE_HEIGHT + pos.y * 0.5;
+    // Chase camera position (third person) — scale with altitude
+    const altitude = pos.y;
+    const extraDist = Math.min(altitude * 0.3, 8);
+    const extraHeight = Math.min(altitude * 0.6, 15);
+    const chasePosX = pos.x - Math.sin(orbitAngle) * (CHASE_DISTANCE + extraDist);
+    const chasePosZ = pos.z - Math.cos(orbitAngle) * (CHASE_DISTANCE + extraDist);
+    const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
     const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
 
     // First person position

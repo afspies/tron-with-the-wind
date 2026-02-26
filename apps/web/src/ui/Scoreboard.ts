@@ -43,26 +43,23 @@ export class Scoreboard {
     // Online clients don't control round advancement — host broadcasts next round
     if (isOnlineClient) return;
 
+    let dismissed = false;
     const handler = () => {
+      if (dismissed) return;
+      dismissed = true;
       this.roundEndEl.style.display = 'none';
       window.removeEventListener('click', handler);
       window.removeEventListener('keydown', handler);
       onContinue();
     };
 
-    // Delay to prevent immediate dismiss
-    setTimeout(() => {
-      window.addEventListener('click', handler);
-      window.addEventListener('keydown', handler);
-    }, 500);
+    window.addEventListener('click', handler);
+    window.addEventListener('keydown', handler);
 
     // Auto advance after 5s
     setTimeout(() => {
-      if (this.roundEndEl.style.display === 'flex') {
-        window.removeEventListener('click', handler);
-        window.removeEventListener('keydown', handler);
-        this.roundEndEl.style.display = 'none';
-        onContinue();
+      if (!dismissed) {
+        handler();
       }
     }, 5000);
   }

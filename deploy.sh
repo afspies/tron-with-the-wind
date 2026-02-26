@@ -3,16 +3,16 @@
 # Deploy Tron with the Wind
 #
 # Usage:
-#   ./deploy.sh prod                Deploy both server + web to production (bumps version)
-#   ./deploy.sh prod server         Deploy server only to production (bumps version)
-#   ./deploy.sh prod web            Deploy web only to production (bumps version)
-#   ./deploy.sh prod --no-bump      Deploy both to production without version bump
-#   ./deploy.sh staging             Deploy both to staging (bumps version)
-#   ./deploy.sh staging server      Deploy staging server only (bumps version)
-#   ./deploy.sh staging web         Deploy staging web only (bumps version)
-#   ./deploy.sh staging --no-bump   Deploy both to staging without version bump
+#   ./deploy.sh prod                Deploy both server + web to production
+#   ./deploy.sh prod server         Deploy server only to production
+#   ./deploy.sh prod web            Deploy web only to production
+#   ./deploy.sh staging             Deploy both to staging
+#   ./deploy.sh staging server      Deploy staging server only
+#   ./deploy.sh staging web         Deploy staging web only
 #   ./deploy.sh logs [prod|staging] Tail server logs
 #   ./deploy.sh status [prod|staging] Show container status
+#
+# Every deploy bumps the patch version, commits, tags, and pushes.
 #
 # Configuration via .env file (see .env.example)
 #
@@ -66,7 +66,7 @@ require_host() {
   fi
 }
 
-# Version bump (every deploy unless --no-bump)
+# Version bump
 bump_version() {
   local current
   current=$(node -p "require('./package.json').version")
@@ -94,7 +94,7 @@ bump_version() {
   echo "  Pushed v${new_version} commit"
 }
 
-# Tag after successful deploy (prod only)
+# Tag after successful deploy
 tag_version() {
   local version="$1"
   echo "=== Tagging v${version} ==="
@@ -164,41 +164,27 @@ server_status() {
 }
 
 show_usage() {
-  echo "Usage: ./deploy.sh <env> [component] [--no-bump]"
+  echo "Usage: ./deploy.sh <env> [component]"
   echo ""
   echo "  ./deploy.sh prod                Deploy both (bumps version, tags, pushes)"
-  echo "  ./deploy.sh prod server         Deploy server only (bumps version)"
-  echo "  ./deploy.sh prod web            Deploy web only (bumps version)"
-  echo "  ./deploy.sh prod --no-bump      Deploy both without version bump"
-  echo "  ./deploy.sh staging             Deploy both to staging (bumps version)"
-  echo "  ./deploy.sh staging server      Deploy staging server only (bumps version)"
-  echo "  ./deploy.sh staging web         Deploy staging web only (bumps version)"
-  echo "  ./deploy.sh staging --no-bump   Deploy both to staging without version bump"
+  echo "  ./deploy.sh prod server         Deploy server only"
+  echo "  ./deploy.sh prod web            Deploy web only"
+  echo "  ./deploy.sh staging             Deploy both to staging"
+  echo "  ./deploy.sh staging server      Deploy staging server only"
+  echo "  ./deploy.sh staging web         Deploy staging web only"
   echo "  ./deploy.sh logs [prod|staging] Tail server logs"
   echo "  ./deploy.sh status [prod|staging] Show container status"
+  echo ""
+  echo "Every deploy bumps the patch version, commits, tags, and pushes."
 }
 
 # Parse arguments
 CMD="${1:-}"
 COMPONENT="${2:-all}"
-NO_BUMP=false
-
-# Check for --no-bump in any position
-for arg in "$@"; do
-  if [ "$arg" = "--no-bump" ]; then
-    NO_BUMP=true
-  fi
-done
-
-# If component is --no-bump, reset to all
-if [ "$COMPONENT" = "--no-bump" ]; then
-  COMPONENT=all
-fi
 
 case "$CMD" in
   prod|staging)
     ENV="$CMD"
-    SHOULD_BUMP=false
 
     # Confirm production deploy
     if [ "$ENV" = "prod" ]; then
@@ -209,11 +195,8 @@ case "$CMD" in
       fi
     fi
 
-    # Bump version unless --no-bump
-    if [ "$NO_BUMP" = "false" ]; then
-      SHOULD_BUMP=true
-      bump_version
-    fi
+    # Always bump version
+    bump_version
 
     case "$COMPONENT" in
       server)
@@ -233,11 +216,9 @@ case "$CMD" in
         ;;
     esac
 
-    # Tag after successful prod deploy
-    if [ "$SHOULD_BUMP" = "true" ]; then
-      echo ""
-      tag_version "$VERSION"
-    fi
+    # Tag after successful deploy
+    echo ""
+    tag_version "$VERSION"
     ;;
   logs)
     server_logs "${2:-prod}"
