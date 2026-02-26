@@ -34,6 +34,8 @@ export class SimBike {
   activeEffect: SimPowerUpEffect | null = null;
   effectTimer = 0;
 
+  terrainHeightFn: (x: number, z: number, currentY: number) => number = () => 0;
+
   get invulnerable(): boolean {
     return this.activeEffect?.type === 'invulnerability' && this.effectTimer > 0;
   }
@@ -137,17 +139,26 @@ export class SimBike {
     if (!this.grounded) {
       this.position.y += this.vy * dt;
       this.vy -= GRAVITY * dt;
-      if (this.position.y <= 0) {
+      const groundY = this.terrainHeightFn(this.position.x, this.position.z, this.position.y);
+      if (this.position.y <= groundY) {
         if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
           this.die();
           return;
         }
-        this.position.y = 0;
+        this.position.y = groundY;
         this.vy = 0;
         this.grounded = true;
         this.pitch = 0;
         this.flying = false;
         this.jumpCooldown = JUMP_COOLDOWN;
+      }
+    }
+
+    // Edge detection: if grounded but terrain dropped away, become airborne
+    if (this.grounded) {
+      const groundY = this.terrainHeightFn(this.position.x, this.position.z, this.position.y);
+      if (this.position.y > groundY + 0.1) {
+        this.grounded = false;
       }
     }
 
@@ -212,7 +223,7 @@ export class SimBike {
   }
 
   reset(x: number, z: number, angle: number): void {
-    this.position = { x, y: 0, z };
+    this.position = { x, y: this.terrainHeightFn(x, z, 999), z };
     this.angle = angle;
     this.vy = 0;
     this.alive = true;

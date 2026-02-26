@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS } from '@tron/shared';
+import type { GameConfig, GameState, PlayerInput, MapId } from '@tron/shared';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, getTerrainHeight } from '@tron/shared';
 import { Simulation } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
@@ -255,6 +255,13 @@ export class Game {
 
     const localSlot = this.colyseus.getLocalSlot();
     const totalPlayers = serverState.bikes.length;
+    const mapId = (serverState.mapId || 'classic') as MapId;
+
+    // Recreate arena for server's map
+    this.arena.dispose(this.ctx.scene);
+    this.arena = new Arena(this.ctx.scene, mapId);
+
+    const terrainFn = (x: number, z: number, currentY: number) => getTerrainHeight(mapId, x, z, currentY);
 
     this.config = {
       humanCount: serverState.players.size,
@@ -263,6 +270,7 @@ export class Game {
       roundsToWin: serverState.roundsToWin,
       mode: 'online',
       localSlot,
+      mapId,
     };
 
     // Create visual bikes from schema
@@ -275,6 +283,7 @@ export class Game {
         schemaBike.x, schemaBike.z, schemaBike.angle,
         this.ctx.scene,
       );
+      bike.terrainHeightFn = terrainFn;
       this.bikes.push(bike);
       this.trails.push(bike.trail);
     }
@@ -301,7 +310,7 @@ export class Game {
       localBikeIdx >= 0 ? localBikeIdx : undefined,
       true,
     );
-    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
+    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0, mapId);
     this.touchControls.show();
   }
 
@@ -326,7 +335,7 @@ export class Game {
       localBikeIdx >= 0 ? localBikeIdx : undefined,
       true,
     );
-    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
+    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0, (this.config.mapId || 'classic') as MapId);
     this.touchControls.show();
   }
 
@@ -349,7 +358,14 @@ export class Game {
     // Clean up old bikes
     this.cleanupBikes();
 
+    const mapId = (config.mapId || 'classic') as MapId;
+
+    // Recreate arena for selected map
+    this.arena.dispose(this.ctx.scene);
+    this.arena = new Arena(this.ctx.scene, mapId);
+
     const totalPlayers = config.humanCount + config.aiCount;
+    const terrainFn = (x: number, z: number, currentY: number) => getTerrainHeight(mapId, x, z, currentY);
 
     // Quickplay mode — create headless simulation
     this.simulation = new Simulation({
@@ -358,6 +374,7 @@ export class Game {
       aiDifficulty: config.aiDifficulty,
       roundsToWin: config.roundsToWin,
       humanSlots: Array.from({ length: config.humanCount }, (_, i) => i),
+      mapId,
     });
 
     // Create visual bikes (rendering only — simulation handles physics)
@@ -368,6 +385,7 @@ export class Game {
         0, 0, 0,
         this.ctx.scene,
       );
+      bike.terrainHeightFn = terrainFn;
       this.bikes.push(bike);
       this.trails.push(bike.trail);
     }
@@ -414,7 +432,7 @@ export class Game {
 
     // Show minimap
     const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config.localSlot ?? 0));
-    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
+    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0, (this.config.mapId || 'classic') as MapId);
 
     // Show touch controls during gameplay
     this.touchControls.show();
@@ -431,6 +449,12 @@ export class Game {
     this.chat.hide();
     this.minimap.hide();
     this.touchControls.hide();
+
+    // Restore classic arena for menu background
+    if (this.arena.mapId !== 'classic') {
+      this.arena.dispose(this.ctx.scene);
+      this.arena = new Arena(this.ctx.scene, 'classic');
+    }
   }
 
   // --- Main Loop ---

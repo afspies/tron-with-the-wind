@@ -3,6 +3,7 @@ import {
   POWERUP_SPAWN_INTERVAL, POWERUP_SPAWN_DELAY, POWERUP_MAX_ACTIVE,
   TRAIL_DESTROY_RADIUS,
 } from '@tron/shared';
+import type { MapId } from '@tron/shared';
 import type { SimBike } from './SimBike';
 import type { SimTrail } from './SimTrail';
 
@@ -33,6 +34,12 @@ export class PowerUpSim {
   powerUps: SimPowerUp[] = [];
   private nextPowerUpId = 0;
   private spawnTimer = 0;
+  private mapId: MapId;
+
+  constructor(mapId: MapId = 'classic') {
+    this.mapId = mapId;
+  }
+
   update(
     dt: number,
     bikes: SimBike[],
@@ -46,7 +53,7 @@ export class PowerUpSim {
     const activeCount = this.powerUps.filter(p => p.active).length;
     if (activeCount < POWERUP_MAX_ACTIVE && this.spawnTimer >= POWERUP_SPAWN_INTERVAL) {
       this.spawnTimer = 0;
-      const pos = generateSpawnPosition();
+      const pos = generateSpawnPosition(this.mapId);
       const id = this.nextPowerUpId++;
       const puType: PowerUpType = 'invulnerability';
       this.powerUps.push({ id, type: puType, x: pos.x, z: pos.z, active: true });
@@ -113,17 +120,19 @@ export class PowerUpSim {
   }
 }
 
-export function generateSpawnPosition(): { x: number; z: number } {
+export function generateSpawnPosition(mapId: MapId = 'classic'): { x: number; z: number } {
   const margin = 15;
   const minCenter = 10;
   const range = ARENA_HALF - margin;
+  // For Skybridge, constrain z to avoid spawning under the platform (z: 30..100)
+  const maxZ = mapId === 'skybridge' ? 25 : range;
 
   for (let attempt = 0; attempt < 50; attempt++) {
     const x = (Math.random() * 2 - 1) * range;
-    const z = (Math.random() * 2 - 1) * range;
+    const z = Math.random() * (range + maxZ) - range; // range: [-range, maxZ]
     if (Math.abs(x) > minCenter || Math.abs(z) > minCenter) {
       return { x, z };
     }
   }
-  return { x: range * 0.5, z: range * 0.5 };
+  return { x: range * 0.5, z: -range * 0.5 };
 }

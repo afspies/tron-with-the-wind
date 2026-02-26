@@ -37,4 +37,5 @@ export interface GameConfig {
   roundsToWin: number;
   mode: 'quickplay' | 'online';
   localSlot?: number;
+  mapId?: string;
 }

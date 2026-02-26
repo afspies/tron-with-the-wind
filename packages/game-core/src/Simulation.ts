@@ -1,5 +1,5 @@
-import type { PlayerInput, AIDifficulty } from '@tron/shared';
-import { NO_INPUT, PLAYER_COLORS } from '@tron/shared';
+import type { PlayerInput, AIDifficulty, MapId } from '@tron/shared';
+import { NO_INPUT, PLAYER_COLORS, getTerrainHeight } from '@tron/shared';
 import { SimBike } from './SimBike';
 import { SimTrail } from './SimTrail';
 import { Round } from './Round';
@@ -19,6 +19,7 @@ export interface SimulationConfig {
   roundsToWin: number;
   /** Slot indices that are human players */
   humanSlots: number[];
+  mapId?: MapId;
 }
 
 export class Simulation {
@@ -32,8 +33,13 @@ export class Simulation {
 
   private config: SimulationConfig;
 
+  terrainHeightFn: (x: number, z: number, currentY: number) => number;
+
   constructor(config: SimulationConfig) {
     this.config = config;
+    const mapId = config.mapId || 'classic';
+    this.terrainHeightFn = (x, z, currentY) => getTerrainHeight(mapId, x, z, currentY);
+
     const totalPlayers = config.humanSlots.length + config.aiCount;
 
     // Determine which slots are used
@@ -46,6 +52,7 @@ export class Simulation {
     // Create bikes
     for (const slot of usedSlots) {
       const bike = new SimBike(slot, PLAYER_COLORS[slot] || '#888', 0, 0, 0);
+      bike.terrainHeightFn = this.terrainHeightFn;
       this.bikes.push(bike);
       this.trails.push(bike.trail);
 
@@ -56,7 +63,7 @@ export class Simulation {
     }
 
     this.round = new Round();
-    this.powerUps = new PowerUpSim();
+    this.powerUps = new PowerUpSim(mapId);
     this.lastBroadcastTrailLen = new Array(this.bikes.length).fill(0);
   }
 

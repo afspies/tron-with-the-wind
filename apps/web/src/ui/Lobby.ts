@@ -61,18 +61,22 @@ export class Lobby {
     const aiDiffSel = document.getElementById('lobby-ai-difficulty') as HTMLSelectElement;
     const roundsSel = document.getElementById('lobby-rounds') as HTMLSelectElement;
 
+    const mapSel = document.getElementById('lobby-map') as HTMLSelectElement;
+
     const updateConfig = () => {
       if (!this.colyseus.isHost) return;
       this.colyseus.sendConfig({
         aiCount: parseInt(aiCountSel.value),
         aiDifficulty: aiDiffSel.value,
         roundsToWin: parseInt(roundsSel.value),
+        mapId: mapSel.value,
       });
     };
 
     aiCountSel.addEventListener('change', updateConfig);
     aiDiffSel.addEventListener('change', updateConfig);
     roundsSel.addEventListener('change', updateConfig);
+    mapSel.addEventListener('change', updateConfig);
   }
 
   showCreateJoin(): void {
@@ -198,6 +202,7 @@ export class Lobby {
       (document.getElementById('lobby-ai-count') as HTMLSelectElement).value = String(state.aiCount);
       (document.getElementById('lobby-ai-difficulty') as HTMLSelectElement).value = state.aiDifficulty;
       (document.getElementById('lobby-rounds') as HTMLSelectElement).value = String(state.roundsToWin);
+      (document.getElementById('lobby-map') as HTMLSelectElement).value = state.mapId;
     }
   }
 
