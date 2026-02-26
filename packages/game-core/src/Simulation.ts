@@ -1,15 +1,20 @@
-import type { PlayerInput, AIDifficulty } from '@tron/shared';
+import type { PlayerInput, AIDifficulty, GameEvent } from '@tron/shared';
 import { NO_INPUT, PLAYER_COLORS } from '@tron/shared';
 import { SimBike } from './SimBike';
 import { SimTrail } from './SimTrail';
 import { Round } from './Round';
 import { PowerUpSim, type PowerUpEvent } from './PowerUpSim';
 import { AIController } from './AI';
+import { checkNearMiss } from './Collision';
+
+const NEAR_MISS_THRESHOLD = 2.5;
+const NEAR_MISS_DEBOUNCE = 1.5; // seconds
 
 export interface TickResult {
   roundEnded: boolean;
   winnerIndex: number;
   powerUpEvents: PowerUpEvent[];
+  gameEvents: GameEvent[];
 }
 
 export interface SimulationConfig {
@@ -29,6 +34,7 @@ export class Simulation {
   aiControllers: Map<number, AIController> = new Map();
   elapsedTime = 0;
   lastBroadcastTrailLen: number[] = [];
+  private nearMissTimers: Map<number, number> = new Map();
 
   private config: SimulationConfig;
 
@@ -68,10 +74,18 @@ export class Simulation {
 
   tick(dt: number, inputs: Map<number, PlayerInput>): TickResult {
     this.elapsedTime += dt;
+    const gameEvents: GameEvent[] = [];
 
     const activePUs = this.powerUps.powerUps
       .filter(p => p.active)
       .map(p => ({ x: p.x, z: p.z }));
+
+    // Decrement near-miss debounce timers
+    for (const [idx, timer] of this.nearMissTimers) {
+      const remaining = timer - dt;
+      if (remaining <= 0) this.nearMissTimers.delete(idx);
+      else this.nearMissTimers.set(idx, remaining);
+    }
 
     for (const bike of this.bikes) {
       if (!bike.alive) continue;
@@ -85,14 +99,55 @@ export class Simulation {
         input = inputs.get(bike.playerIndex) || NO_INPUT;
       }
 
-      bike.update(dt, input, this.trails);
+      const deathInfo = bike.update(dt, input, this.trails);
+
+      if (deathInfo) {
+        const killerIndex = deathInfo.cause === 'trail' ? this.bikes[deathInfo.trailIndex]?.playerIndex ?? -1 : -1;
+        gameEvents.push({
+          type: 'death',
+          playerIndex: bike.playerIndex,
+          killerIndex,
+          cause: deathInfo.cause,
+          x: deathInfo.contactX,
+          z: deathInfo.contactZ,
+        });
+      } else if (bike.grounded && !this.nearMissTimers.has(bike.playerIndex)) {
+        // Near-miss detection for alive, grounded bikes
+        const nearMiss = checkNearMiss(
+          bike.position.x, bike.position.z, bike.position.y,
+          this.trails, bike.playerIndex, NEAR_MISS_THRESHOLD,
+        );
+        if (nearMiss) {
+          this.nearMissTimers.set(bike.playerIndex, NEAR_MISS_DEBOUNCE);
+          gameEvents.push({
+            type: 'nearMiss',
+            playerIndex: bike.playerIndex,
+            trailOwnerIndex: nearMiss.trailIndex,
+            distance: nearMiss.distance,
+            x: nearMiss.x,
+            z: nearMiss.z,
+          });
+        }
+      }
     }
 
     const powerUpEvents = this.powerUps.update(dt, this.bikes, this.trails, this.lastBroadcastTrailLen);
 
     const { ended, winnerIndex } = this.round.checkRoundEnd(this.bikes);
 
-    return { roundEnded: ended, winnerIndex, powerUpEvents };
+    if (ended) {
+      gameEvents.push({
+        type: 'roundWin',
+        winnerIndex,
+        roundNumber: this.round.roundNumber,
+      });
+      const gameWinner = this.round.getWinner(this.config.roundsToWin);
+      if (gameWinner >= 0) {
+        gameEvents.push({ type: 'gameWin', winnerIndex: gameWinner });
+      }
+    }
+
+    return { roundEnded: ended, winnerIndex, powerUpEvents, gameEvents };
   }
 
   getBikeBySlot(slot: number): SimBike | undefined {

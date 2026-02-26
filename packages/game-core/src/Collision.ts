@@ -93,3 +93,59 @@ export function checkTrailCollisionDetailed(
 export function checkWallCollision(x: number, z: number): boolean {
   return Math.abs(x) > ARENA_HALF || Math.abs(z) > ARENA_HALF;
 }
+
+export interface NearMissInfo {
+  trailIndex: number;
+  distance: number;
+  x: number;
+  z: number;
+}
+
+function pointToSegmentDistSq(
+  px: number, pz: number,
+  ax: number, az: number,
+  bx: number, bz: number,
+): { distSq: number; closestX: number; closestZ: number } {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq < 1e-10) return { distSq: (px - ax) ** 2 + (pz - az) ** 2, closestX: ax, closestZ: az };
+  let t = ((px - ax) * dx + (pz - az) * dz) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const closestX = ax + t * dx;
+  const closestZ = az + t * dz;
+  const distSq = (px - closestX) ** 2 + (pz - closestZ) ** 2;
+  return { distSq, closestX, closestZ };
+}
+
+export function checkNearMiss(
+  bikeX: number, bikeZ: number, bikeY: number,
+  trails: SimTrail[],
+  ownIndex: number,
+  threshold: number,
+): NearMissInfo | null {
+  const thresholdSq = threshold * threshold;
+  let closest: NearMissInfo | null = null;
+  let closestDistSq = thresholdSq;
+
+  for (let t = 0; t < trails.length; t++) {
+    if (t === ownIndex) continue;
+    const pts = trails[t].points;
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (isNaN(pts[i].x) || isNaN(pts[i + 1].x)) continue;
+      // Height check: only count if Y ranges overlap
+      const segMinY = Math.min(pts[i].y, pts[i + 1].y);
+      const segMaxY = Math.max(pts[i].y, pts[i + 1].y) + TRAIL_HEIGHT;
+      if (bikeY > segMaxY + BIKE_COLLISION_HEIGHT || bikeY + BIKE_COLLISION_HEIGHT < segMinY) continue;
+
+      const { distSq, closestX, closestZ } = pointToSegmentDistSq(
+        bikeX, bikeZ, pts[i].x, pts[i].z, pts[i + 1].x, pts[i + 1].z,
+      );
+      if (distSq < closestDistSq) {
+        closestDistSq = distSq;
+        closest = { trailIndex: t, distance: Math.sqrt(distSq), x: closestX, z: closestZ };
+      }
+    }
+  }
+  return closest;
+}

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
+import type { GameConfig, GameState, PlayerInput, GameEvent } from '@tron/shared';
 import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS } from '@tron/shared';
 import { Simulation } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
@@ -20,6 +20,9 @@ import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
 import { Minimap } from '../ui/Minimap';
 import { PowerUpManager } from './PowerUpManager';
+import { GameRecorder } from './GameRecorder';
+import { HighlightTracker } from './HighlightTracker';
+import { HighlightViewer } from '../ui/HighlightViewer';
 
 export class Game {
   private ctx: SceneContext;
@@ -46,6 +49,12 @@ export class Game {
   // Power-ups
   private powerUpManager!: PowerUpManager;
 
+  // Highlights
+  private recorder: GameRecorder | null = null;
+  private highlightTracker: HighlightTracker | null = null;
+  private highlightViewer: HighlightViewer;
+  private recordingStarted = false;
+
   // UI
   private menu: Menu;
   private hud: HUD;
@@ -66,6 +75,7 @@ export class Game {
     this.touchControls = new TouchControls(this.input);
     this.chat = new Chat();
     this.minimap = new Minimap();
+    this.highlightViewer = new HighlightViewer();
 
     setupLighting(this.ctx.scene);
     setupEnvironment(this.ctx.scene);
@@ -99,7 +109,11 @@ export class Game {
     this.colyseus.onPowerUpEvent = (event) => {
       if (this.config?.mode === 'online') {
         this.powerUpManager.handleNetEvent(event, this.bikes);
+        this.highlightTracker?.addPowerUpEvent(event);
       }
+    };
+    this.colyseus.onGameEvent = (event: GameEvent) => {
+      this.highlightTracker?.addGameEvent(event);
     };
     this.colyseus.onDisconnect = () => {
       if (this.config?.mode !== 'online') return;
@@ -226,6 +240,7 @@ export class Game {
           () => {
             // Play again
             this.scoreboard.hideAll();
+            this.highlightViewer.hide();
             if (this.colyseus.isHost) {
               this.colyseus.sendPlayAgain();
             }
@@ -233,6 +248,7 @@ export class Game {
           () => {
             // Main menu
             this.scoreboard.hideAll();
+            this.highlightViewer.hide();
             this.colyseus.leave();
             this.cleanupBikes();
             this.lastServerPhase = '';
@@ -240,6 +256,7 @@ export class Game {
             this.menu.show();
           },
         );
+        this.stopRecordingAndShowHighlights();
         break;
       }
     }
@@ -420,6 +437,39 @@ export class Game {
     this.touchControls.show();
   }
 
+  private startRecording(): void {
+    if (this.recordingStarted) return;
+    this.recordingStarted = true;
+
+    // Initialize highlight tracker
+    this.highlightTracker = new HighlightTracker();
+    this.highlightTracker.start();
+
+    // Initialize recorder if supported
+    if (GameRecorder.isSupported()) {
+      const gameCanvas = this.ctx.renderer.domElement;
+      this.recorder = new GameRecorder(gameCanvas);
+      this.recorder.start();
+    }
+  }
+
+  private async stopRecordingAndShowHighlights(): Promise<void> {
+    const tracker = this.highlightTracker;
+    const recorder = this.recorder;
+    this.recordingStarted = false;
+
+    if (!tracker) return;
+
+    const highlights = tracker.getTopHighlights(10);
+
+    if (recorder?.isRecording()) {
+      const blob = await recorder.stop();
+      if (blob.size > 0) {
+        this.highlightViewer.show(blob, recorder.getMimeType(), highlights);
+      }
+    }
+  }
+
   private cleanupBikes(): void {
     for (const bike of this.bikes) {
       bike.dispose(this.ctx.scene);
@@ -431,6 +481,11 @@ export class Game {
     this.chat.hide();
     this.minimap.hide();
     this.touchControls.hide();
+    this.highlightViewer.dispose();
+    this.recorder?.dispose();
+    this.recorder = null;
+    this.highlightTracker = null;
+    this.recordingStarted = false;
   }
 
   // --- Main Loop ---
@@ -443,6 +498,10 @@ export class Game {
 
     switch (this.state) {
       case 'COUNTDOWN': {
+        // Start recording on first countdown
+        if (!this.recordingStarted) {
+          this.startRecording();
+        }
         this.countdownTimer -= dt;
         const display = Math.ceil(this.countdownTimer);
         this.countdownEl.textContent = display > 0 ? String(display) : 'GO!';
@@ -481,6 +540,9 @@ export class Game {
 
     updateEnvironment(this.ctx.scene, this.elapsedTime);
     this.ctx.composer.render();
+
+    // Capture frame for recording (after render, so we get the composited output)
+    this.recorder?.captureFrame();
   };
 
   // --- Local (Quickplay) Update ---
@@ -508,7 +570,13 @@ export class Game {
     for (const event of result.powerUpEvents) {
       if (event.type === 'powerup-spawn' || event.type === 'powerup-pickup') {
         this.powerUpManager.handleNetEvent(event, this.bikes);
+        this.highlightTracker?.addPowerUpEvent(event);
       }
+    }
+
+    // Feed game events to highlight tracker
+    for (const event of result.gameEvents) {
+      this.highlightTracker?.addGameEvent(event);
     }
 
     // Update power-up visuals only (animations — logic is in simulation)
@@ -566,11 +634,13 @@ export class Game {
           },
           () => {
             this.scoreboard.hideAll();
+            this.highlightViewer.hide();
             this.cleanupBikes();
             this.state = 'MENU';
             this.menu.show();
           },
         );
+        this.stopRecordingAndShowHighlights();
       }, 1500);
     } else {
       setTimeout(() => {

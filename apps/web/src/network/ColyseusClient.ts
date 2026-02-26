@@ -1,6 +1,6 @@
 import { Client, Room } from 'colyseus.js';
 import { ClientMsg, ServerMsg } from '@tron/shared';
-import type { PlayerInput, AIDifficulty } from '@tron/shared';
+import type { PlayerInput, AIDifficulty, GameEvent } from '@tron/shared';
 import type { ChatMessage } from '../ui/Chat';
 
 const DEFAULT_SERVER_URL = 'ws://localhost:2567';
@@ -43,6 +43,7 @@ export class ColyseusClient {
   onStateChange: (() => void) | null = null;
   onChatReceived: ((msg: ChatMessage) => void) | null = null;
   onPowerUpEvent: ((event: any) => void) | null = null;
+  onGameEvent: ((event: GameEvent) => void) | null = null;
   onDisconnect: ((code: number) => void) | null = null;
   onError: ((error: Error) => void) | null = null;
 
@@ -90,6 +91,10 @@ export class ColyseusClient {
 
     this.room.onMessage(ServerMsg.PowerUpEffect, (data: any) => {
       this.onPowerUpEvent?.(data);
+    });
+
+    this.room.onMessage(ServerMsg.GameEvent, (data: GameEvent) => {
+      this.onGameEvent?.(data);
     });
 
     this.room.onLeave((code: number) => {

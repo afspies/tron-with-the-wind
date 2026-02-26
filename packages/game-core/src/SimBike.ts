@@ -1,4 +1,4 @@
-import type { Vec2, Vec3, PlayerInput } from '@tron/shared';
+import type { Vec2, Vec3, PlayerInput, DeathCause } from '@tron/shared';
 import {
   BIKE_SPEED, TURN_RATE,
   JUMP_INITIAL_VY, GRAVITY, JUMP_COOLDOWN,
@@ -13,6 +13,13 @@ import { SimTrail } from './SimTrail';
 import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision, type TrailHitInfo } from './Collision';
 import type { SimPowerUpEffect } from './powerups/SimPowerUpEffect';
 import { createSimEffect } from './powerups/SimPowerUpRegistry';
+
+export interface DeathInfo {
+  cause: DeathCause;
+  trailIndex: number; // -1 for wall
+  contactX: number;
+  contactZ: number;
+}
 
 export class SimBike {
   position: Vec3;
@@ -58,8 +65,8 @@ export class SimBike {
     this.trail = new SimTrail();
   }
 
-  update(dt: number, input: PlayerInput, allTrails: SimTrail[], skipCollision = false): void {
-    if (!this.alive) return;
+  update(dt: number, input: PlayerInput, allTrails: SimTrail[], skipCollision = false): DeathInfo | null {
+    if (!this.alive) return null;
 
     // Steering
     const turnRate = this.flying ? TURN_RATE * FLIGHT_AIR_TURN_MULT : TURN_RATE;
@@ -140,7 +147,7 @@ export class SimBike {
       if (this.position.y <= 0) {
         if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
           this.die();
-          return;
+          return { cause: 'self', trailIndex: this.playerIndex, contactX: this.position.x, contactZ: this.position.z };
         }
         this.position.y = 0;
         this.vy = 0;
@@ -179,7 +186,7 @@ export class SimBike {
           this.position.z = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.z));
         } else {
           this.die();
-          return;
+          return { cause: 'wall', trailIndex: -1, contactX: this.position.x, contactZ: this.position.z };
         }
       }
       if (this.invulnerable) {
@@ -189,15 +196,18 @@ export class SimBike {
           this.lastTrailDestruction = hit;
         }
       } else {
-        if (checkTrailCollision(oldPos, newPos, this.position.y, allTrails, this.playerIndex)) {
+        const hit = checkTrailCollisionDetailed(oldPos, newPos, this.position.y, allTrails, this.playerIndex);
+        if (hit) {
           this.die();
-          return;
+          const cause: DeathCause = hit.trailIndex === this.playerIndex ? 'self' : 'trail';
+          return { cause, trailIndex: hit.trailIndex, contactX: hit.contactX, contactZ: hit.contactZ };
         }
       }
     }
 
     // Update trail
     this.trail.addPoint(this.position.x, this.position.y, this.position.z);
+    return null;
   }
 
   grantInvulnerability(): void {

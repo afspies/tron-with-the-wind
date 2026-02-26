@@ -38,3 +38,38 @@ export interface GameConfig {
   mode: 'quickplay' | 'online';
   localSlot?: number;
 }
+
+// --- Game Events ---
+
+export type DeathCause = 'trail' | 'wall' | 'self';
+
+export interface DeathEvent {
+  type: 'death';
+  playerIndex: number;
+  killerIndex: number; // -1 for wall/self
+  cause: DeathCause;
+  x: number;
+  z: number;
+}
+
+export interface NearMissEvent {
+  type: 'nearMiss';
+  playerIndex: number;
+  trailOwnerIndex: number;
+  distance: number;
+  x: number;
+  z: number;
+}
+
+export interface RoundWinEvent {
+  type: 'roundWin';
+  winnerIndex: number;
+  roundNumber: number;
+}
+
+export interface GameWinEvent {
+  type: 'gameWin';
+  winnerIndex: number;
+}
+
+export type GameEvent = DeathEvent | NearMissEvent | RoundWinEvent | GameWinEvent;
