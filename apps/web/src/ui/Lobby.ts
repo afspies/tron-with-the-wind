@@ -6,11 +6,13 @@ export class Lobby {
   private onlinePanel: HTMLElement;
   private lobbyDiv: HTMLElement;
   private colyseus: ColyseusClient;
+  private getNickname: () => string;
   private onStart: () => void;
   private onLeave: () => void;
 
-  constructor(colyseus: ColyseusClient, onStart: () => void, onLeave: () => void) {
+  constructor(colyseus: ColyseusClient, getNickname: () => string, onStart: () => void, onLeave: () => void) {
     this.colyseus = colyseus;
+    this.getNickname = getNickname;
     this.onStart = onStart;
     this.onLeave = onLeave;
     this.onlinePanel = document.getElementById('online-panel')!;
@@ -25,6 +27,7 @@ export class Lobby {
         aiCount: parseInt(aiCountSel.value),
         aiDifficulty: aiDiffSel.value as AIDifficulty,
         roundsToWin: parseInt(roundsSel.value),
+        name: this.getNickname() || undefined,
       });
       this.showLobby(code, true);
     });
@@ -97,7 +100,7 @@ export class Lobby {
     relays.classList.add('active');
 
     try {
-      await this.colyseus.joinRoom(code);
+      await this.colyseus.joinRoom(code, { name: this.getNickname() || undefined });
 
       // Connected successfully
       joiningOverlay.style.display = 'none';
@@ -167,11 +170,11 @@ export class Lobby {
       const row = document.createElement('div');
       row.className = 'lobby-player-row';
       const color = PLAYER_COLORS[player.slot] || '#888';
-      const name = PLAYER_NAMES[player.slot] || `Player ${player.slot + 1}`;
+      const displayName = player.name || PLAYER_NAMES[player.slot] || `Player ${player.slot + 1}`;
       const isLocal = player.sessionId === this.colyseus.localSessionId;
       row.innerHTML = `
         <div class="lobby-dot" style="background:${color}; box-shadow: 0 0 8px ${color}"></div>
-        <span>${name}${isLocal ? ' (You)' : ''}</span>
+        <span>${displayName}${isLocal ? ' (You)' : ''}</span>
       `;
       listEl.appendChild(row);
     }

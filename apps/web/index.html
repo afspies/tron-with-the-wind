@@ -57,6 +57,28 @@
       letter-spacing: 0.2em;
       text-transform: uppercase;
     }
+    #nickname-input {
+      font-family: 'Cinzel', serif;
+      font-size: 1.1rem;
+      width: 320px;
+      padding: 12px 16px;
+      margin-bottom: 1.5rem;
+      text-align: center;
+      background: rgba(26,10,46,0.8);
+      color: #ffd700;
+      border: 2px solid rgba(153,102,204,0.4);
+      border-radius: 8px;
+      letter-spacing: 0.05em;
+    }
+    #nickname-input::placeholder {
+      color: rgba(153,102,204,0.45);
+      font-size: 0.95rem;
+    }
+    #nickname-input:focus {
+      outline: none;
+      border-color: rgba(255,215,0,0.6);
+      box-shadow: 0 0 15px rgba(255,215,0,0.15);
+    }
     .menu-btn {
       display: block;
       width: 320px;
@@ -554,6 +576,7 @@
       <div id="version-tag"></div>
       <h1>Tron with the Wind</h1>
       <p class="subtitle">A Fantasy Lightcycle Battle</p>
+      <input id="nickname-input" type="text" maxlength="16" placeholder="Enter nickname" autocomplete="off" />
       <button class="menu-btn" id="btn-quickplay">Quick Play</button>
       <button class="menu-btn" id="btn-online">Online Play</button>
       <div id="online-panel">
