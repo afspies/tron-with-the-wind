@@ -7,9 +7,10 @@
 #   ./deploy.sh prod server         Deploy server only to production (bumps version)
 #   ./deploy.sh prod web            Deploy web only to production (bumps version)
 #   ./deploy.sh prod --no-bump      Deploy both to production without version bump
-#   ./deploy.sh staging             Deploy both to staging (no version bump)
-#   ./deploy.sh staging server      Deploy staging server only
-#   ./deploy.sh staging web         Deploy staging web only
+#   ./deploy.sh staging             Deploy both to staging (bumps version)
+#   ./deploy.sh staging server      Deploy staging server only (bumps version)
+#   ./deploy.sh staging web         Deploy staging web only (bumps version)
+#   ./deploy.sh staging --no-bump   Deploy both to staging without version bump
 #   ./deploy.sh logs [prod|staging] Tail server logs
 #   ./deploy.sh status [prod|staging] Show container status
 #
@@ -65,7 +66,7 @@ require_host() {
   fi
 }
 
-# Version bump (prod only)
+# Version bump (every deploy unless --no-bump)
 bump_version() {
   local current
   current=$(node -p "require('./package.json').version")
@@ -169,9 +170,10 @@ show_usage() {
   echo "  ./deploy.sh prod server         Deploy server only (bumps version)"
   echo "  ./deploy.sh prod web            Deploy web only (bumps version)"
   echo "  ./deploy.sh prod --no-bump      Deploy both without version bump"
-  echo "  ./deploy.sh staging             Deploy both to staging (no bump)"
-  echo "  ./deploy.sh staging server      Deploy staging server only"
-  echo "  ./deploy.sh staging web         Deploy staging web only"
+  echo "  ./deploy.sh staging             Deploy both to staging (bumps version)"
+  echo "  ./deploy.sh staging server      Deploy staging server only (bumps version)"
+  echo "  ./deploy.sh staging web         Deploy staging web only (bumps version)"
+  echo "  ./deploy.sh staging --no-bump   Deploy both to staging without version bump"
   echo "  ./deploy.sh logs [prod|staging] Tail server logs"
   echo "  ./deploy.sh status [prod|staging] Show container status"
 }
@@ -207,8 +209,8 @@ case "$CMD" in
       fi
     fi
 
-    # Bump version for prod deploys unless --no-bump
-    if [ "$ENV" = "prod" ] && [ "$NO_BUMP" = "false" ]; then
+    # Bump version unless --no-bump
+    if [ "$NO_BUMP" = "false" ]; then
       SHOULD_BUMP=true
       bump_version
     fi

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, INTERP_DELAY_TICKS } from '@tron/shared';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, INTERP_DELAY_TICKS, NET_TICK_DURATION_MS } from '@tron/shared';
 import { Simulation } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
@@ -43,6 +43,7 @@ export class Game {
   private lobby: Lobby;
   private lastServerPhase = '';
   private serverTick = 0;
+  private lastServerTickTime = 0;
 
   // Power-ups
   private powerUpManager!: PowerUpManager;
@@ -151,6 +152,7 @@ export class Game {
     // Push server state into each bike's net buffer for interpolation
     if (this.state === 'PLAYING' || this.state === 'COUNTDOWN') {
       this.serverTick = roomState.tick;
+      this.lastServerTickTime = performance.now();
       for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {
         const sb = roomState.bikes[i];
         this.bikes[i].applyNetState({
@@ -557,7 +559,11 @@ export class Game {
     const roomState = this.colyseus.room?.state as any;
     if (!roomState) return;
 
-    const renderTick = this.serverTick - INTERP_DELAY_TICKS;
+    // Sub-tick interpolation: advance renderTick smoothly between server updates
+    const subTick = this.lastServerTickTime > 0
+      ? (performance.now() - this.lastServerTickTime) / NET_TICK_DURATION_MS
+      : 0;
+    const renderTick = this.serverTick - INTERP_DELAY_TICKS + subTick;
 
     for (const bike of this.bikes) {
       if (bike.isLocalPredicted) {
@@ -569,11 +575,12 @@ export class Game {
       }
     }
 
-    // Sync trails from server schema (authoritative)
+    // Sync trails from server only on destruction (trail shrunk)
+    // Normal trail growth is handled by each bike's update/deadReckon
     for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {
       const schemaBike = roomState.bikes[i];
       const bike = this.bikes[i];
-      if (schemaBike.trail.length !== bike.trail.points.length) {
+      if (schemaBike.trail.length < bike.trail.points.length) {
         const points: Array<{ x: number; y: number; z: number }> = [];
         for (const tp of schemaBike.trail) {
           points.push({ x: tp.x, y: tp.y, z: tp.z });

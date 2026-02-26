@@ -23,14 +23,15 @@ npm run build       # TypeScript check + Vite production build (apps/web only)
 ./deploy.sh prod server           # Bump + deploy server only
 ./deploy.sh prod web              # Bump + deploy web only
 ./deploy.sh prod --no-bump        # Deploy both without version bump (hotfix)
-./deploy.sh staging               # Deploy both to staging (no version bump)
-./deploy.sh staging server        # Deploy staging server only
-./deploy.sh staging web           # Deploy staging web only
+./deploy.sh staging               # Bump version + deploy both to staging
+./deploy.sh staging server        # Bump + deploy staging server only
+./deploy.sh staging web           # Bump + deploy staging web only
+./deploy.sh staging --no-bump     # Deploy both to staging without version bump
 ./deploy.sh logs [prod|staging]   # Tail server logs
 ./deploy.sh status [prod|staging] # Show container status
 ```
 
-Version bumps (prod only): auto-increments patch in `package.json` + `apps/web/package.json`, commits, tags `vX.Y.Z`, pushes after deploy.
+Version bumps (all deploys unless `--no-bump`): auto-increments patch in `package.json` + `apps/web/package.json`, commits, tags `vX.Y.Z`, pushes after deploy.
 
 ### Deploy Flows
 

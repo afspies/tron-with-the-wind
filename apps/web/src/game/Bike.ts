@@ -297,12 +297,6 @@ export class Bike {
       }
     }
 
-    // Update trail (follows bike Y for 3D arcs)
-    // Skip for predicted bikes — trail is authoritatively synced from server schema
-    if (!this.isLocalPredicted) {
-      this.trail.addPoint(this.position.x, this.position.y, this.position.z);
-    }
-
     // Update mesh — predicted bikes use visual smoothing for host corrections
     if (this.isLocalPredicted && this.visualInitialized) {
       const blend = 1 - Math.exp(-VISUAL_CORRECTION_RATE * dt);
@@ -317,6 +311,9 @@ export class Bike {
       this.mesh.position.copy(this.position);
       this.mesh.rotation.y = this.angle;
     }
+
+    // Update trail at visual position so it always follows the rendered bike
+    this.trail.addPoint(this.visualPos.x, this.position.y, this.visualPos.z);
 
     this.updatePitchTilt();
 
@@ -660,6 +657,9 @@ export class Bike {
     this.mesh.position.copy(this.visualPos);
     this.mesh.rotation.y = this.visualAngle;
     this.updatePitchTilt();
+
+    // Trail follows visual position so it always ends where the bike renders
+    this.trail.addPoint(this.visualPos.x, this.position.y, this.visualPos.z);
 
     // Effect visual update (for remote bikes)
     if (this.activeEffect) {
