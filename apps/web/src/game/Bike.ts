@@ -6,7 +6,7 @@ import {
   NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
-  DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_VELOCITY_LERP,
+  DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_TRACTION, NORMAL_TRACTION,
 } from '@tron/shared';
 import type { Vec2, PlayerInput } from '@tron/shared';
 import type { SimBike } from '@tron/game-core';
@@ -15,6 +15,13 @@ import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision } 
 import type { PowerUpEffect } from './powerups/PowerUpEffect';
 import { createEffect } from './powerups/PowerUpRegistry';
 import { TrailParticles, DriftParticles, DeathParticles } from './BikeParticles';
+
+/** Normalize an angle difference to the range (-PI, PI]. */
+function wrapAngle(diff: number): number {
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  return diff;
+}
 
 export class Bike {
   mesh: THREE.Group;
@@ -57,6 +64,8 @@ export class Bike {
   drifting = false;
   velocityAngle: number = 0;
   driftTimer = 0;
+  vx = 0;
+  vz = 0;
 
   // Client-side prediction: local player's bike runs physics locally
   isLocalPredicted = false;
@@ -90,6 +99,7 @@ export class Bike {
     this.angle = angle;
     this.velocityAngle = angle;
     this.speed = BIKE_SPEED;
+    this.deriveVelocityFromAngle();
     this.visualPos = this.position.clone();
     this.visualAngle = angle;
     this.scene = scene;
@@ -164,11 +174,8 @@ export class Bike {
 
     // Drift state: ground-only, cancels on jump
     const wantsDrift = input.drift && this.grounded;
-    if (wantsDrift && !this.drifting) {
-      this.drifting = true;
-      this.driftTimer = 0;
-    } else if (!wantsDrift && this.drifting) {
-      this.drifting = false;
+    if (wantsDrift !== this.drifting) {
+      this.drifting = wantsDrift;
       this.driftTimer = 0;
     }
     if (this.drifting) this.driftTimer += dt;
@@ -177,21 +184,6 @@ export class Bike {
     const turnRate = this.drifting ? TURN_RATE * DRIFT_TURN_MULTIPLIER : TURN_RATE;
     if (input.left) this.angle += turnRate * dt;
     if (input.right) this.angle -= turnRate * dt;
-
-    // Velocity angle: lerp toward heading while drifting, snap when not
-    if (this.drifting) {
-      let diff = this.angle - this.velocityAngle;
-      while (diff > Math.PI) diff -= 2 * Math.PI;
-      while (diff < -Math.PI) diff += 2 * Math.PI;
-      const maxStep = DRIFT_VELOCITY_LERP * dt;
-      if (Math.abs(diff) < maxStep) {
-        this.velocityAngle = this.angle;
-      } else {
-        this.velocityAngle += Math.sign(diff) * maxStep;
-      }
-    } else {
-      this.velocityAngle = this.angle;
-    }
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
@@ -208,21 +200,31 @@ export class Bike {
         this.boostMeter = Math.min(BOOST_MAX, this.boostMeter + rate * dt);
       }
     }
-    const driftMul = this.drifting ? DRIFT_SPEED_MULTIPLIER : 1.0;
-    const speedMul = (this.boosting ? BOOST_MULTIPLIER : 1.0) * driftMul;
+    const currentSpeed = this.effectiveSpeed;
 
-    // Forward direction (uses velocityAngle for movement)
-    const forward = new THREE.Vector3(
-      Math.sin(this.velocityAngle),
-      0,
-      Math.cos(this.velocityAngle),
-    );
+    // Velocity vector traction blend
+    const desiredVx = Math.sin(this.angle) * currentSpeed;
+    const desiredVz = Math.cos(this.angle) * currentSpeed;
+    const traction = this.drifting ? DRIFT_TRACTION : NORMAL_TRACTION;
+    const t = 1 - Math.exp(-traction * dt);
+    this.vx += (desiredVx - this.vx) * t;
+    this.vz += (desiredVz - this.vz) * t;
+
+    // Renormalize to maintain constant speed
+    const len = Math.sqrt(this.vx * this.vx + this.vz * this.vz);
+    if (len > 0.001) {
+      this.vx = (this.vx / len) * currentSpeed;
+      this.vz = (this.vz / len) * currentSpeed;
+    }
+
+    // Derive velocityAngle for visuals
+    this.velocityAngle = Math.atan2(this.vx, this.vz);
 
     const oldPos: Vec2 = { x: this.position.x, z: this.position.z };
 
     // Move
-    this.position.x += forward.x * this.speed * speedMul * dt;
-    this.position.z += forward.z * this.speed * speedMul * dt;
+    this.position.x += this.vx * dt;
+    this.position.z += this.vz * dt;
 
     // Jump
     this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
@@ -304,10 +306,7 @@ export class Bike {
     if (this.isLocalPredicted && this.visualInitialized) {
       const blend = 1 - Math.exp(-VISUAL_CORRECTION_RATE * dt);
       this.visualPos.lerp(this.position, blend);
-      let angleDiff = this.angle - this.visualAngle;
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      this.visualAngle += angleDiff * blend;
+      this.visualAngle += wrapAngle(this.angle - this.visualAngle) * blend;
       this.mesh.position.copy(this.visualPos);
       this.mesh.rotation.y = this.visualAngle;
     } else {
@@ -318,23 +317,8 @@ export class Bike {
       this.mesh.rotation.y = this.angle;
     }
 
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
-
-    // Drift body lean
-    if (this.drifting) {
-      let slideAngle = this.angle - this.velocityAngle;
-      while (slideAngle > Math.PI) slideAngle -= 2 * Math.PI;
-      while (slideAngle < -Math.PI) slideAngle += 2 * Math.PI;
-      this.bodyMesh.rotation.z = slideAngle * 0.4;
-    } else {
-      this.bodyMesh.rotation.z *= 0.85; // smooth return
-    }
+    this.updatePitchTilt();
+    this.updateDriftLean();
 
     // Spawn trail particles
     this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded);
@@ -381,6 +365,8 @@ export class Bike {
     this.drifting = simBike.drifting;
     this.velocityAngle = simBike.velocityAngle;
     this.driftTimer = simBike.driftTimer;
+    this.vx = simBike.vx;
+    this.vz = simBike.vz;
 
     // Sync invulnerability visual effect
     this.syncInvulnerabilityFromNet(simBike.invulnerable, simBike.invulnerableTimer);
@@ -391,23 +377,8 @@ export class Bike {
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.angle;
 
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
-
-    // Drift body lean
-    if (this.drifting) {
-      let slideAngle = this.angle - this.velocityAngle;
-      while (slideAngle > Math.PI) slideAngle -= 2 * Math.PI;
-      while (slideAngle < -Math.PI) slideAngle += 2 * Math.PI;
-      this.bodyMesh.rotation.z = slideAngle * 0.4;
-    } else {
-      this.bodyMesh.rotation.z *= 0.85;
-    }
+    this.updatePitchTilt();
+    this.updateDriftLean();
 
     // Sync trail from simulation
     this.trail.syncFromSimTrail(simBike.trail.points);
@@ -445,10 +416,7 @@ export class Bike {
     this.position.y += (schemaBike.y - this.position.y) * blend;
     this.position.z += (schemaBike.z - this.position.z) * blend;
 
-    let angleDiff = schemaBike.angle - this.angle;
-    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-    this.angle += angleDiff * blend;
+    this.angle += wrapAngle(schemaBike.angle - this.angle) * blend;
 
     // Copy non-positional state
     this.vy = schemaBike.vy;
@@ -460,11 +428,8 @@ export class Bike {
 
     // Drift state
     this.drifting = schemaBike.drifting;
-    // Smooth velocityAngle toward server value
-    let vaDiff = schemaBike.velocityAngle - this.velocityAngle;
-    while (vaDiff > Math.PI) vaDiff -= 2 * Math.PI;
-    while (vaDiff < -Math.PI) vaDiff += 2 * Math.PI;
-    this.velocityAngle += vaDiff * blend;
+    this.velocityAngle += wrapAngle(schemaBike.velocityAngle - this.velocityAngle) * blend;
+    this.deriveVelocityFromAngle();
 
     // Sync invulnerability visual effect
     this.syncInvulnerabilityFromNet(schemaBike.invulnerable, schemaBike.invulnerableTimer);
@@ -475,23 +440,8 @@ export class Bike {
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.angle;
 
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
-
-    // Drift body lean
-    if (this.drifting) {
-      let slideAngle = this.angle - this.velocityAngle;
-      while (slideAngle > Math.PI) slideAngle -= 2 * Math.PI;
-      while (slideAngle < -Math.PI) slideAngle += 2 * Math.PI;
-      this.bodyMesh.rotation.z = slideAngle * 0.4;
-    } else {
-      this.bodyMesh.rotation.z *= 0.85;
-    }
+    this.updatePitchTilt();
+    this.updateDriftLean();
 
     // Sync trail from schema trail array (only when length changes)
     const schemaTrailLen = schemaBike.trail.length;
@@ -523,6 +473,51 @@ export class Bike {
   setLightColor(color: THREE.Color, intensity: number): void {
     this.bikeLight.color.copy(color);
     this.bikeLight.intensity = intensity;
+  }
+
+  /** Effective speed accounting for boost and drift multipliers. */
+  private get effectiveSpeed(): number {
+    const boostMul = this.boosting ? BOOST_MULTIPLIER : 1.0;
+    const driftMul = this.drifting ? DRIFT_SPEED_MULTIPLIER : 1.0;
+    return this.speed * boostMul * driftMul;
+  }
+
+  /** Recompute vx/vz from the current velocityAngle and effective speed. */
+  private deriveVelocityFromAngle(): void {
+    const speed = this.effectiveSpeed;
+    this.vx = Math.sin(this.velocityAngle) * speed;
+    this.vz = Math.cos(this.velocityAngle) * speed;
+  }
+
+  /** Apply pitch tilt to the bike body based on jump state. */
+  private updatePitchTilt(): void {
+    if (!this.grounded) {
+      const pitchFactor = this.vy / JUMP_INITIAL_VY;
+      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
+    } else {
+      this.bodyMesh.rotation.x = 0;
+    }
+  }
+
+  /** Apply body lean based on the angle between heading and velocity. */
+  private updateDriftLean(): void {
+    if (this.drifting) {
+      const slideAngle = wrapAngle(this.angle - this.velocityAngle);
+      this.bodyMesh.rotation.z = slideAngle * 0.4;
+    } else {
+      this.bodyMesh.rotation.z *= 0.85;
+    }
+  }
+
+  /** Sync optional drift fields from a net state snapshot. */
+  private syncDriftFromNetState(state: { drifting?: boolean; velocityAngle?: number }): void {
+    if (state.drifting !== undefined) {
+      this.drifting = state.drifting;
+    }
+    if (state.velocityAngle !== undefined) {
+      this.velocityAngle = state.velocityAngle;
+      this.deriveVelocityFromAngle();
+    }
   }
 
   private die(): void {
@@ -567,10 +562,7 @@ export class Bike {
         this.position.y += dy * correction;
         this.position.z += dz * correction;
 
-        let angleDiff = state.angle - this.angle;
-        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        this.angle += angleDiff * correction;
+        this.angle += wrapAngle(state.angle - this.angle) * correction;
       }
 
       // Always sync non-positional state from host
@@ -585,12 +577,7 @@ export class Bike {
         this.doubleJumpCooldown = state.doubleJumpCooldown;
         this.doubleJumpReady = state.doubleJumpCooldown <= 0;
       }
-      if (state.drifting !== undefined) {
-        this.drifting = state.drifting;
-      }
-      if (state.velocityAngle !== undefined) {
-        this.velocityAngle = state.velocityAngle;
-      }
+      this.syncDriftFromNetState(state);
       return;
     }
 
@@ -627,12 +614,7 @@ export class Bike {
       this.doubleJumpCooldown = state.doubleJumpCooldown;
       this.doubleJumpReady = state.doubleJumpCooldown <= 0;
     }
-    if (state.drifting !== undefined) {
-      this.drifting = state.drifting;
-    }
-    if (state.velocityAngle !== undefined) {
-      this.velocityAngle = state.velocityAngle;
-    }
+    this.syncDriftFromNetState(state);
   }
 
   private syncInvulnerabilityFromNet(isInvulnerable: boolean, timer: number): void {
@@ -674,10 +656,7 @@ export class Bike {
         this.position.z = a.z + (b.z - a.z) * t;
         this.position.y = a.y + (b.y - a.y) * t;
 
-        let da = b.angle - a.angle;
-        while (da > Math.PI) da -= 2 * Math.PI;
-        while (da < -Math.PI) da += 2 * Math.PI;
-        this.angle = a.angle + da * t;
+        this.angle = a.angle + wrapAngle(b.angle - a.angle) * t;
 
         this.vy = a.vy + (b.vy - a.vy) * t;
         this.grounded = t < 0.5 ? a.grounded : b.grounded;
@@ -686,8 +665,7 @@ export class Bike {
         // Use boost-aware speed; cap at 1 tick to avoid overshooting turns.
         const extraTicks = renderTick - b.tick;
         const cappedSec = Math.min(extraTicks * (NET_TICK_DURATION_MS / 1000), NET_TICK_DURATION_MS / 1000);
-        const driftMul = this.drifting ? DRIFT_SPEED_MULTIPLIER : 1.0;
-        const speed = (this.boosting ? BIKE_SPEED * BOOST_MULTIPLIER : BIKE_SPEED) * driftMul;
+        const speed = this.effectiveSpeed;
         const extraAngle = this.drifting ? this.velocityAngle : b.angle;
         this.position.x = b.x + Math.sin(extraAngle) * speed * cappedSec;
         this.position.z = b.z + Math.cos(extraAngle) * speed * cappedSec;
@@ -716,10 +694,7 @@ export class Bike {
       this.position.z = a.z + (b.z - a.z) * Math.min(t, 1.0);
       this.position.y = a.y + (b.y - a.y) * Math.min(t, 1.0);
 
-      let da = b.angle - a.angle;
-      while (da > Math.PI) da -= 2 * Math.PI;
-      while (da < -Math.PI) da += 2 * Math.PI;
-      this.angle = a.angle + da * Math.min(t, 1.0);
+      this.angle = a.angle + wrapAngle(b.angle - a.angle) * Math.min(t, 1.0);
 
       if (t >= 1.0 && this.netBuffer.length >= 3) {
         this.netBuffer.shift();
@@ -731,11 +706,7 @@ export class Bike {
     if (this.visualInitialized) {
       const blend = 1 - Math.exp(-VISUAL_CORRECTION_RATE * dt);
       this.visualPos.lerp(this.position, blend);
-
-      let angleDiff = this.angle - this.visualAngle;
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      this.visualAngle += angleDiff * blend;
+      this.visualAngle += wrapAngle(this.angle - this.visualAngle) * blend;
     } else {
       this.visualPos.copy(this.position);
       this.visualAngle = this.angle;
@@ -745,23 +716,8 @@ export class Bike {
     this.mesh.position.copy(this.visualPos);
     this.mesh.rotation.y = this.visualAngle;
 
-    // Pitch tilt during jump
-    if (!this.grounded) {
-      const pitchFactor = this.vy / JUMP_INITIAL_VY;
-      this.bodyMesh.rotation.x = -pitchFactor * 0.2;
-    } else {
-      this.bodyMesh.rotation.x = 0;
-    }
-
-    // Drift body lean
-    if (this.drifting) {
-      let slideAngle = this.angle - this.velocityAngle;
-      while (slideAngle > Math.PI) slideAngle -= 2 * Math.PI;
-      while (slideAngle < -Math.PI) slideAngle += 2 * Math.PI;
-      this.bodyMesh.rotation.z = slideAngle * 0.4;
-    } else {
-      this.bodyMesh.rotation.z *= 0.85;
-    }
+    this.updatePitchTilt();
+    this.updateDriftLean();
 
     // Effect visual update (for remote bikes)
     if (this.activeEffect) {
@@ -799,6 +755,7 @@ export class Bike {
     this.drifting = false;
     this.velocityAngle = this.angle;
     this.driftTimer = 0;
+    this.deriveVelocityFromAngle();
     this.netBuffer = [];
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;

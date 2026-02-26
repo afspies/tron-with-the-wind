@@ -34,6 +34,8 @@ export class Game {
   private clock = new THREE.Clock();
   private countdownTimer = 0;
   private elapsedTime = 0;
+  private roundEndTimeout: ReturnType<typeof setTimeout> | null = null;
+  private rPressed = false; // edge-detect for R key restart
 
   // Headless simulation (quickplay)
   private simulation: Simulation | null = null;
@@ -342,6 +344,12 @@ export class Game {
   // --- Game Start (Quickplay) ---
 
   private startGame(config: GameConfig): void {
+    // Clear any pending round-end timeout to prevent stale callbacks
+    if (this.roundEndTimeout !== null) {
+      clearTimeout(this.roundEndTimeout);
+      this.roundEndTimeout = null;
+    }
+
     this.config = config;
     this.menu.hide();
     this.scoreboard.hideAll();
@@ -440,6 +448,18 @@ export class Game {
 
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.elapsedTime += dt;
+
+    // Quick restart (R key) in quickplay mode — edge-detected
+    const rDown = this.input.isKeyPressed('KeyR');
+    const canQuickRestart = this.config && this.config.mode !== 'online' && this.state !== 'MENU';
+    if (canQuickRestart && rDown && !this.rPressed) {
+      this.rPressed = rDown;
+      this.scoreboard.hideAll();
+      this.countdownEl.style.display = 'none';
+      this.startGame(this.config);
+      return;
+    }
+    this.rPressed = rDown;
 
     switch (this.state) {
       case 'COUNTDOWN': {
@@ -557,7 +577,8 @@ export class Game {
 
     const gameWinner = this.round.getWinner(this.config.roundsToWin);
     if (gameWinner >= 0) {
-      setTimeout(() => {
+      this.roundEndTimeout = setTimeout(() => {
+        this.roundEndTimeout = null;
         this.state = 'GAME_OVER';
         this.scoreboard.showGameOver(
           gameWinner,
@@ -573,7 +594,8 @@ export class Game {
         );
       }, 1500);
     } else {
-      setTimeout(() => {
+      this.roundEndTimeout = setTimeout(() => {
+        this.roundEndTimeout = null;
         this.scoreboard.showRoundEnd(
           winnerIndex,
           this.round.scores,

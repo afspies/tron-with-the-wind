@@ -61,4 +61,5 @@ export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
 // Drift
 export const DRIFT_TURN_MULTIPLIER = 1.8;
 export const DRIFT_SPEED_MULTIPLIER = 0.85;
-export const DRIFT_VELOCITY_LERP = 6.0;
+export const DRIFT_TRACTION = 4.0;   // low = more slide (try 2.0-8.0)
+export const NORMAL_TRACTION = 60.0; // high = instant grip
