@@ -5,6 +5,7 @@ import {
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
+  DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_VELOCITY_LERP,
 } from '@tron/shared';
 import { SimTrail } from './SimTrail';
 import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision, type TrailHitInfo } from './Collision';
@@ -43,11 +44,16 @@ export class SimBike {
   usedDoubleJumpThisAirborne = false;
   boostRechargeTimer = 0;
 
+  drifting = false;
+  velocityAngle: number;
+  driftTimer = 0;
+
   constructor(playerIndex: number, color: string, x: number, z: number, angle: number) {
     this.playerIndex = playerIndex;
     this.color = color;
     this.position = { x, y: 0, z };
     this.angle = angle;
+    this.velocityAngle = angle;
     this.speed = BIKE_SPEED;
     this.trail = new SimTrail();
   }
@@ -55,9 +61,36 @@ export class SimBike {
   update(dt: number, input: PlayerInput, allTrails: SimTrail[], skipCollision = false): void {
     if (!this.alive) return;
 
-    // Steering
-    if (input.left) this.angle += TURN_RATE * dt;
-    if (input.right) this.angle -= TURN_RATE * dt;
+    // Drift state: ground-only, cancels on jump
+    const wantsDrift = input.drift && this.grounded;
+    if (wantsDrift && !this.drifting) {
+      this.drifting = true;
+      this.driftTimer = 0;
+    } else if (!wantsDrift && this.drifting) {
+      this.drifting = false;
+      this.driftTimer = 0;
+    }
+    if (this.drifting) this.driftTimer += dt;
+
+    // Steering (faster turn rate while drifting)
+    const turnRate = this.drifting ? TURN_RATE * DRIFT_TURN_MULTIPLIER : TURN_RATE;
+    if (input.left) this.angle += turnRate * dt;
+    if (input.right) this.angle -= turnRate * dt;
+
+    // Velocity angle: lerp toward heading while drifting, snap when not
+    if (this.drifting) {
+      let diff = this.angle - this.velocityAngle;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      const maxStep = DRIFT_VELOCITY_LERP * dt;
+      if (Math.abs(diff) < maxStep) {
+        this.velocityAngle = this.angle;
+      } else {
+        this.velocityAngle += Math.sign(diff) * maxStep;
+      }
+    } else {
+      this.velocityAngle = this.angle;
+    }
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
@@ -73,11 +106,12 @@ export class SimBike {
         this.boostMeter = Math.min(BOOST_MAX, this.boostMeter + rate * dt);
       }
     }
-    const speedMul = this.boosting ? BOOST_MULTIPLIER : 1.0;
+    const driftMul = this.drifting ? DRIFT_SPEED_MULTIPLIER : 1.0;
+    const speedMul = (this.boosting ? BOOST_MULTIPLIER : 1.0) * driftMul;
 
-    // Forward direction
-    const forwardX = Math.sin(this.angle);
-    const forwardZ = Math.cos(this.angle);
+    // Forward direction (uses velocityAngle for movement)
+    const forwardX = Math.sin(this.velocityAngle);
+    const forwardZ = Math.cos(this.velocityAngle);
 
     const oldPos: Vec2 = { x: this.position.x, z: this.position.z };
 
@@ -190,6 +224,9 @@ export class SimBike {
     this.doubleJumpCooldown = 0;
     this.usedDoubleJumpThisAirborne = false;
     this.boostRechargeTimer = 0;
+    this.drifting = false;
+    this.velocityAngle = angle;
+    this.driftTimer = 0;
     this.trail.reset();
   }
 }

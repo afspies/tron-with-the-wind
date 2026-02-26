@@ -34,6 +34,7 @@ export class HUD {
       row.innerHTML = `
         <div class="hud-dot" style="color:${PLAYER_COLORS[i]};background:${PLAYER_COLORS[i]}"></div>
         <span>${PLAYER_NAMES[i]}${youTag}</span>
+        <span class="hud-drift" id="hud-drift-${i}" style="display:none;color:#ffaa33;font-size:0.7em;margin-left:4px;">DRIFT</span>
         <span class="hud-status" id="hud-status-${i}"></span>
         <div class="hud-boost-bar">
           <div class="hud-boost-fill" id="hud-boost-${i}" style="background:${PLAYER_COLORS[i]};width:100%"></div>
@@ -73,6 +74,11 @@ export class HUD {
           statusEl.textContent = '';
           statusEl.style.textShadow = '';
         }
+      }
+      // Drift indicator
+      const driftEl = document.getElementById(`hud-drift-${i}`);
+      if (driftEl) {
+        driftEl.style.display = bikes[i].drifting ? 'inline' : 'none';
       }
       // Double-jump cooldown bar
       const djFill = document.getElementById(`hud-dj-${i}`);

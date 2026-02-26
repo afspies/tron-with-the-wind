@@ -57,3 +57,8 @@ export const BOOST_RECHARGE_DELAY = 1.5; // seconds after releasing boost before
 
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
+
+// Drift
+export const DRIFT_TURN_MULTIPLIER = 1.8;
+export const DRIFT_SPEED_MULTIPLIER = 0.85;
+export const DRIFT_VELOCITY_LERP = 6.0;
