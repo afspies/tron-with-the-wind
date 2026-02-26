@@ -552,19 +552,19 @@
     /* Bottom-right: boost dial + jump bar */
     #hud-local-status {
       position: absolute;
-      bottom: 24px;
-      right: 24px;
+      bottom: 3vmin;
+      right: 3vmin;
       display: none;
       align-items: flex-end;
-      gap: 12px;
+      gap: 1.5vmin;
       pointer-events: none;
     }
 
     /* Boost radial dial */
     .boost-dial {
       position: relative;
-      width: 120px;
-      height: 120px;
+      width: 15vmin;
+      height: 15vmin;
     }
     .boost-dial svg {
       width: 100%;
@@ -591,18 +591,18 @@
       left: 50%;
       transform: translate(-50%, -50%);
       font-family: 'Cinzel', serif;
-      font-size: 1.4rem;
+      font-size: 1.8vmin;
       font-weight: 700;
       color: #f0e6d3;
       text-shadow: 0 0 6px rgba(0,0,0,0.8);
     }
     .boost-dial-sublabel {
       position: absolute;
-      bottom: 4px;
+      bottom: 0.5vmin;
       left: 50%;
       transform: translateX(-50%);
       font-family: 'Cinzel', serif;
-      font-size: 0.6rem;
+      font-size: 0.8vmin;
       color: rgba(240,230,211,0.6);
       text-transform: uppercase;
       letter-spacing: 0.15em;
@@ -613,11 +613,11 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 4px;
+      gap: 0.5vmin;
     }
     .jump-bar {
-      width: 30px;
-      height: 120px;
+      width: 3.5vmin;
+      height: 15vmin;
       background: rgba(0,221,255,0.1);
       border: 1px solid rgba(0,221,255,0.25);
       border-radius: 4px;
@@ -645,7 +645,7 @@
     }
     .jump-bar-label {
       font-family: 'Cinzel', serif;
-      font-size: 0.55rem;
+      font-size: 0.8vmin;
       color: rgba(0,221,255,0.7);
       text-transform: uppercase;
       letter-spacing: 0.1em;
@@ -654,12 +654,12 @@
     /* Top-right powerup box (below minimap) */
     #hud-powerups {
       position: absolute;
-      top: 180px;
-      right: 16px;
+      top: 23vmin;
+      right: 2vmin;
       display: none;
       align-items: center;
-      gap: 10px;
-      padding: 10px 16px;
+      gap: 1.2vmin;
+      padding: 1.2vmin 2vmin;
       background: rgba(10,5,20,0.7);
       border: 2px solid rgba(255,215,0,0.4);
       border-radius: 8px;
@@ -678,12 +678,12 @@
       animation: powerup-rainbow 2s linear infinite;
     }
     .powerup-icon {
-      font-size: 1.5rem;
+      font-size: 2vmin;
       line-height: 1;
     }
     .powerup-timer {
       font-family: monospace;
-      font-size: 1.1rem;
+      font-size: 1.5vmin;
       color: #ffd700;
       font-weight: 700;
       min-width: 3ch;
