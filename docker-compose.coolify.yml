@@ -6,13 +6,13 @@ services:
       args:
         GIT_BRANCH: ${GIT_BRANCH:-}
     restart: unless-stopped
-    ports:
-      - "80:80"
+    expose:
+      - "80"
 
   server:
     build: .
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     environment:
       - PORT=8080
