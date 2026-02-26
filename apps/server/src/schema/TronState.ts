@@ -20,6 +20,8 @@ export class BikeSchema extends Schema {
   @type('boolean') invulnerable: boolean = false;
   @type('float32') invulnerableTimer: number = 0;
   @type('float32') doubleJumpCooldown: number = 0;
+  @type('float32') pitch: number = 0;
+  @type('boolean') flying: boolean = false;
   @type([TrailPointSchema]) trail = new ArraySchema<TrailPointSchema>();
 }
 

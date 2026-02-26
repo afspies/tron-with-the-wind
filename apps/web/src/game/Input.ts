@@ -9,13 +9,15 @@ interface KeyMapping {
   right: string[];
   jump: string[];
   boost: string[];
+  pitchUp: string[];
+  pitchDown: string[];
 }
 
 const KEY_MAPS: KeyMapping[] = [
-  { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space', 'ArrowUp'], boost: ['ShiftLeft', 'ArrowDown'] },
-  { left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Slash'], boost: ['ShiftRight'] },
-  { left: ['KeyJ'], right: ['KeyL'], jump: ['KeyH'], boost: ['KeyU'] },
-  { left: ['Numpad4'], right: ['Numpad6'], jump: ['Numpad0'], boost: ['Numpad1'] },
+  { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space', 'ArrowUp'], boost: ['ShiftLeft', 'ArrowDown'], pitchUp: ['KeyS'], pitchDown: ['KeyW'] },
+  { left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Slash'], boost: ['ShiftRight'], pitchUp: [], pitchDown: [] },
+  { left: ['KeyJ'], right: ['KeyL'], jump: ['KeyH'], boost: ['KeyU'], pitchUp: [], pitchDown: [] },
+  { left: ['Numpad4'], right: ['Numpad6'], jump: ['Numpad0'], boost: ['Numpad1'], pitchUp: [], pitchDown: [] },
 ];
 
 export class InputManager {
@@ -39,6 +41,8 @@ export class InputManager {
       right: map.right.some((k) => this.keys.has(k)) || !!this.virtualInputs.get('right'),
       jump: map.jump.some((k) => this.keys.has(k)) || !!this.virtualInputs.get('jump'),
       boost: map.boost.some((k) => this.keys.has(k)) || !!this.virtualInputs.get('boost'),
+      pitchUp: map.pitchUp.some((k) => this.keys.has(k)) || !!this.virtualInputs.get('pitchUp'),
+      pitchDown: map.pitchDown.some((k) => this.keys.has(k)) || !!this.virtualInputs.get('pitchDown'),
     };
   }
 

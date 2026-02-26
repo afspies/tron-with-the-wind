@@ -27,6 +27,8 @@ export class TronRoom extends Room<TronState> {
         right: !!data.right,
         jump: !!data.jump,
         boost: !!data.boost,
+        pitchUp: !!data.pitchUp,
+        pitchDown: !!data.pitchDown,
       });
     });
 
@@ -246,6 +248,8 @@ export class TronRoom extends Room<TronState> {
       bike.invulnerable = sim.invulnerable;
       bike.invulnerableTimer = sim.invulnerableTimer;
       bike.doubleJumpCooldown = sim.doubleJumpCooldown;
+      bike.pitch = sim.pitch;
+      bike.flying = sim.flying;
     }
   }
 

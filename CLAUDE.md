@@ -34,11 +34,13 @@ Version bumps (prod only): auto-increments patch in `package.json` + `apps/web/p
 
 ### Deploy Flows
 
+**Before deploying:** Ensure the branch is pushed to the remote (`git push -u origin <branch>`). The server deploy does `git pull` on the VPS, so the branch must exist upstream.
+
 **Server:** SSH to VPS, `git pull`, then `docker compose up -d --build` (see `Dockerfile` -- runs via `tsx`, no compile step).
 
-**Web:** `VITE_APP_ENV={env} VITE_COLYSEUS_URL={url} npm run build`, then `wrangler pages deploy` to Cloudflare Pages.
+**Web:** `VITE_APP_ENV={env} VITE_COLYSEUS_URL={url} npm run build`, then `wrangler pages deploy` to Cloudflare Pages. The build embeds the current git branch name into the version label (via `vite.config.ts`).
 
-Staging web builds show `v1.0.X (staging)` via `VITE_APP_ENV=staging` (see `apps/web/vite.config.ts` and `apps/web/src/main.ts`).
+Non-main branches show `vX.Y.Z (branch-name)` in the frontend version indicator.
 
 ## Infrastructure
 

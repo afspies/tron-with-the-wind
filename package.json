@@ -1,7 +1,7 @@
 {
   "name": "tron-with-the-wind",
   "private": true,
-  "version": "2.0.3",
+  "version": "2.0.9",
   "workspaces": [
     "packages/*",
     "apps/*"

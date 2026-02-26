@@ -27,7 +27,7 @@ export class TrailParticles {
     scene.add(this.points);
   }
 
-  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean): void {
+  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean, flying = false): void {
     const posArr = this.positions;
     const spdArr = this.speeds;
     const lifeArr = this.lifetimes;
@@ -43,19 +43,28 @@ export class TrailParticles {
     }
 
     // Spawn new at bike rear
-    if (grounded || bikeY < 1) {
+    if (flying || grounded || bikeY < 1) {
       for (let i = 0; i < this.maxParticles; i++) {
         if (lifeArr[i] <= 0) {
           const rear = -1.0;
           const rx = bikeX - Math.sin(bikeAngle) * rear;
           const rz = bikeZ - Math.cos(bikeAngle) * rear;
           posArr[i * 3] = rx + (Math.random() - 0.5) * 0.5;
-          posArr[i * 3 + 1] = Math.random() * TRAIL_HEIGHT;
           posArr[i * 3 + 2] = rz + (Math.random() - 0.5) * 0.5;
-          spdArr[i * 3] = (Math.random() - 0.5) * 2;
-          spdArr[i * 3 + 1] = Math.random() * 3;
-          spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2;
-          lifeArr[i] = 0.3 + Math.random() * 0.5;
+          if (flying) {
+            // Exhaust plume: spawn behind + below, high velocity away
+            posArr[i * 3 + 1] = bikeY - 0.3 + (Math.random() - 0.5) * 0.5;
+            spdArr[i * 3] = -Math.sin(bikeAngle) * 5 + (Math.random() - 0.5) * 2;
+            spdArr[i * 3 + 1] = -3 + Math.random() * 2;
+            spdArr[i * 3 + 2] = -Math.cos(bikeAngle) * 5 + (Math.random() - 0.5) * 2;
+            lifeArr[i] = 0.2 + Math.random() * 0.4;
+          } else {
+            posArr[i * 3 + 1] = Math.random() * TRAIL_HEIGHT;
+            spdArr[i * 3] = (Math.random() - 0.5) * 2;
+            spdArr[i * 3 + 1] = Math.random() * 3;
+            spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2;
+            lifeArr[i] = 0.3 + Math.random() * 0.5;
+          }
           break; // one per frame
         }
       }
