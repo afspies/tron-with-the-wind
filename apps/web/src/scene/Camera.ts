@@ -28,7 +28,7 @@ export class GameCamera {
   private firstPerson = false;
   private fpBlend = 0;          // 0 = chase, 1 = first person
   private keys = new Set<string>();
-  private sPressed = false;     // edge-detect for S toggle
+  private viewTogglePressed = false;  // edge-detect for X toggle
 
   constructor() {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -80,9 +80,9 @@ export class GameCamera {
   }
 
   private updateCameraControls(dt: number): void {
-    // Q/E orbit
-    const panLeft = this.keys.has('KeyQ') || this.keys.has('Comma');
-    const panRight = this.keys.has('KeyE') || this.keys.has('Period');
+    // Z/C orbit
+    const panLeft = this.keys.has('KeyZ') || this.keys.has('Comma');
+    const panRight = this.keys.has('KeyC') || this.keys.has('Period');
 
     if (panLeft) {
       this.orbitOffset = Math.min(MAX_ORBIT, this.orbitOffset + ORBIT_SPEED * dt);
@@ -99,12 +99,12 @@ export class GameCamera {
       }
     }
 
-    // S toggle first person (edge-detect)
-    const sDown = this.keys.has('KeyS');
-    if (sDown && !this.sPressed) {
+    // X toggle first person (edge-detect)
+    const xDown = this.keys.has('KeyX');
+    if (xDown && !this.viewTogglePressed) {
       this.firstPerson = !this.firstPerson;
     }
-    this.sPressed = sDown;
+    this.viewTogglePressed = xDown;
 
     // Smooth blend toward target
     const fpTarget = this.firstPerson ? 1 : 0;

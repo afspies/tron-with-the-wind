@@ -68,7 +68,7 @@ export class SimBike {
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
-    this.flying = !this.grounded && this.usedDoubleJumpThisAirborne && this.boosting;
+    this.flying = !this.grounded && this.boosting;
 
     if (this.boosting) {
       const drain = this.flying ? BOOST_DRAIN * FLIGHT_BOOST_DRAIN_MULT : BOOST_DRAIN;
@@ -84,12 +84,14 @@ export class SimBike {
       }
     }
 
-    // Pitch update
-    if (this.flying) {
-      this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
-    } else if (!this.grounded && this.pitch > 0) {
-      this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RETURN_RATE * dt);
-    } else if (this.grounded) {
+    // Pitch update — player-controlled via W/S whenever airborne
+    if (!this.grounded) {
+      if (input.pitchUp) {
+        this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
+      } else if (input.pitchDown) {
+        this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RATE * dt);
+      }
+    } else {
       this.pitch = 0;
     }
 
@@ -125,7 +127,7 @@ export class SimBike {
         this.grounded = false;
         this.jumpCooldown = JUMP_COOLDOWN;
         this.usedDoubleJumpThisAirborne = false;
-      } else if (this.doubleJumpReady && !this.usedDoubleJumpThisAirborne) {
+      } else if (this.doubleJumpReady) {
         this.vy = JUMP_INITIAL_VY;
         this.usedDoubleJumpThisAirborne = true;
         this.doubleJumpReady = false;

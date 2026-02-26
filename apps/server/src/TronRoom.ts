@@ -27,6 +27,8 @@ export class TronRoom extends Room<TronState> {
         right: !!data.right,
         jump: !!data.jump,
         boost: !!data.boost,
+        pitchUp: !!data.pitchUp,
+        pitchDown: !!data.pitchDown,
       });
     });
 
