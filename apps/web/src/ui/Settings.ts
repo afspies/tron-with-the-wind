@@ -127,6 +127,11 @@ export class Settings {
         row.appendChild(cell);
       }
 
+      // Spacer to balance the label so key cells are visually centered
+      const spacer = document.createElement('div');
+      spacer.className = 'settings-spacer';
+      row.appendChild(spacer);
+
       this.bindingsEl.appendChild(row);
     }
   }
