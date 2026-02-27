@@ -44,6 +44,14 @@ export const COUNTDOWN_DURATION = 3;
 export const NET_TICK_DURATION_MS = 1000 / 30; // ~33.33ms per tick
 export const VISUAL_CORRECTION_RATE = 18; // exponential smoothing speed for visual position
 
+// Snap + render offset reconciliation (local predicted bike)
+export const RENDER_OFFSET_SNAP_THRESHOLD = 10; // distance above which we teleport (zero offset)
+export const RENDER_OFFSET_MIN_CORRECTION = 0.1; // distance below which we skip correction
+
+// Fractional render tick for remote bikes
+export const REMOTE_TICK_CORRECTION_RATE = 0.1; // drift correction blend per server tick
+export const REMOTE_TICK_SNAP_THRESHOLD = 2; // tick drift above which we snap
+
 // Power-ups
 export const POWERUP_PICKUP_RADIUS = 3.0;
 export const INVULNERABILITY_DURATION = 5.0;

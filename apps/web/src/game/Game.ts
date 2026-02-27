@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS } from '@tron/shared';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD } from '@tron/shared';
 import { Simulation } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
@@ -66,6 +66,7 @@ export class Game {
   private lobby: Lobby;
   private lastServerPhase = '';
   private lastServerTick = 0;
+  private remoteRenderTick = 0;
 
   // Power-ups
   private powerUpManager!: PowerUpManager;
@@ -283,6 +284,7 @@ export class Game {
     this.scoreboard.hideAll();
     this.cleanupBikes();
     this.lastServerTick = 0;
+    this.remoteRenderTick = 0;
 
     const localSlot = this.colyseus.getLocalSlot();
     const totalPlayers = serverState.bikes.length;
@@ -346,6 +348,7 @@ export class Game {
   private startOnlineRound(serverState: any): void {
     this.powerUpManager.reset();
     this.scoreboard.hideAll();
+    this.remoteRenderTick = 0;
 
     // Reset bikes from server positions
     for (let i = 0; i < this.bikes.length && i < serverState.bikes.length; i++) {
@@ -606,6 +609,16 @@ export class Game {
     this.hud.update(this.bikes, this.round.roundNumber, this.config.roundsToWin);
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
 
+    // Wire up live head: trail always connects seamlessly to bike
+    for (const bike of this.bikes) {
+      if (bike.alive) {
+        const rp = bike.renderPosition;
+        bike.trail.updateLiveHead(rp.x, rp.y, rp.z);
+      } else {
+        bike.trail.clearLiveHead();
+      }
+    }
+
     if (result.roundEnded) {
       this.handleRoundEnd(result.winnerIndex);
     }
@@ -624,6 +637,18 @@ export class Game {
 
     const newTick = roomState.tick !== this.lastServerTick;
     if (newTick) this.lastServerTick = roomState.tick;
+
+    // Advance fractional remote render tick smoothly at frame rate
+    this.remoteRenderTick += dt / (NET_TICK_DURATION_MS / 1000);
+    if (newTick) {
+      const targetTick = roomState.tick - 1;
+      const drift = targetTick - this.remoteRenderTick;
+      if (Math.abs(drift) > REMOTE_TICK_SNAP_THRESHOLD) {
+        this.remoteRenderTick = targetTick;
+      } else {
+        this.remoteRenderTick += drift * REMOTE_TICK_CORRECTION_RATE;
+      }
+    }
 
     const localSlot = this.config.localSlot ?? 0;
 
@@ -644,12 +669,12 @@ export class Game {
           this.syncTrailFromServer(bike, sb);
         }
       } else {
-        // REMOTE: buffer states, interpolate
+        // REMOTE: buffer states, interpolate with fractional render tick
         if (newTick) {
           bike.applyNetState(netStateFromSchema(sb, roomState.tick));
           this.syncTrailFromServer(bike, sb);
         }
-        bike.deadReckon(dt, roomState.tick - 1); // render 1 tick behind
+        bike.deadReckon(dt, this.remoteRenderTick);
       }
     }
 
@@ -659,6 +684,16 @@ export class Game {
     this.syncScoresFromServer(roomState);
     this.hud.update(this.bikes, roomState.roundNumber, roomState.roundsToWin);
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
+
+    // Wire up live head: trail always connects seamlessly to bike
+    for (const bike of this.bikes) {
+      if (bike.alive) {
+        const rp = bike.renderPosition;
+        bike.trail.updateLiveHead(rp.x, rp.y, rp.z);
+      } else {
+        bike.trail.clearLiveHead();
+      }
+    }
   }
 
   private syncTrailFromServer(bike: Bike, schemaBike: any): void {
