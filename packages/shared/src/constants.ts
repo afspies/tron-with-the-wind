@@ -9,6 +9,7 @@ export const TRAIL_SAMPLE_DISTANCE = 1.0;
 export const TRAIL_HEIGHT = 2.0;
 export const TRAIL_SKIP_SEGMENTS = 3;
 export const BIKE_COLLISION_HEIGHT = 1.0;
+export const SELF_TRAIL_GRACE_RADIUS = 4.0;
 
 export const JUMP_PEAK_HEIGHT = 3.0;
 export const GRAVITY = 20.0;
