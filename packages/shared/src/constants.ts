@@ -10,6 +10,7 @@ export const TRAIL_SAMPLE_DISTANCE = 1.0;
 export const TRAIL_HEIGHT = 2.0;
 export const TRAIL_SKIP_SEGMENTS = 3;
 export const BIKE_COLLISION_HEIGHT = 1.0;
+export const SELF_TRAIL_GRACE_RADIUS = 4.0;
 
 export const JUMP_PEAK_HEIGHT = 3.0;
 export const GRAVITY = 20.0;
@@ -63,7 +64,7 @@ export const FLIGHT_MAX_PITCH = 1.22;          // ~70°, prevents fully vertical
 export const FLIGHT_THRUST = 32.0;             // upward acceleration (vs GRAVITY=20)
 export const FLIGHT_AIR_TURN_MULT = 0.5;       // yaw turn rate halved during flight
 export const FLIGHT_BOOST_DRAIN_MULT = 1.3;    // boost drains 30% faster during flight
-export const FLIGHT_LANDING_MAX_PITCH = 0.79;  // ~45°, crash if landing steeper
+export const FLIGHT_LANDING_MAX_PITCH = 1.22;  // ~70°, match FLIGHT_MAX_PITCH
 
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
@@ -74,6 +75,18 @@ export const WALL_MIN_SPEED = 8;
 export const WALL_MAX_SPEED = 60;
 export const CEILING_RESTITUTION = 0.5;
 export const WALL_ATTACH_MIN_VEL = 5;
+
+// Stadium
+export const STADIUM_INNER_GAP = 5;
+export const STADIUM_TIER_COUNT = 8;
+export const STADIUM_TIER_HEIGHT = 5;
+export const STADIUM_TIER_DEPTH = 7;
+export const STADIUM_SIDES: Array<{ axis: 'x' | 'z'; sign: 1 | -1 }> = [
+  { axis: 'z', sign: -1 }, // north
+  { axis: 'z', sign: 1 },  // south
+  { axis: 'x', sign: -1 }, // west
+  { axis: 'x', sign: 1 },  // east
+];
 
 // Drift
 export const DRIFT_TURN_MULTIPLIER = 1.8;

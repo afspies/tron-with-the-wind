@@ -1,5 +1,5 @@
 import type { Vec2, Vec3 } from '@tron/shared';
-import { SurfaceType, ARENA_HALF, TRAIL_HEIGHT, TRAIL_SKIP_SEGMENTS, BIKE_COLLISION_HEIGHT } from '@tron/shared';
+import { SurfaceType, ARENA_HALF, TRAIL_HEIGHT, TRAIL_SKIP_SEGMENTS, BIKE_COLLISION_HEIGHT, SELF_TRAIL_GRACE_RADIUS } from '@tron/shared';
 import type { SimTrail } from './SimTrail';
 
 export function lineSegmentsIntersect(
@@ -68,14 +68,27 @@ export function checkTrailCollisionDetailed(
   trails: SimTrail[],
   ownTrailIndex: number,
 ): TrailHitInfo | null {
+  const graceSq = SELF_TRAIL_GRACE_RADIUS * SELF_TRAIL_GRACE_RADIUS;
+
   for (let t = 0; t < trails.length; t++) {
     const trail = trails[t];
     const pts = trail.points;
-    const skipEnd = t === ownTrailIndex ? TRAIL_SKIP_SEGMENTS : 0;
+    const isOwn = t === ownTrailIndex;
+    const skipEnd = isOwn ? TRAIL_SKIP_SEGMENTS : 0;
     const endIdx = pts.length - 1 - skipEnd;
 
     for (let i = 0; i < endIdx; i++) {
       if (isNaN(pts[i].x) || isNaN(pts[i + 1].x)) continue;
+
+      // For own trail, skip segments where both endpoints are within grace radius (XZ)
+      if (isOwn) {
+        const dx0 = pts[i].x - newPos.x;
+        const dz0 = pts[i].z - newPos.z;
+        const dx1 = pts[i + 1].x - newPos.x;
+        const dz1 = pts[i + 1].z - newPos.z;
+        if (dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq) continue;
+      }
+
       const u = lineSegmentIntersectParam(oldPos, newPos, pts[i], pts[i + 1]);
       if (u < 0) continue;
 

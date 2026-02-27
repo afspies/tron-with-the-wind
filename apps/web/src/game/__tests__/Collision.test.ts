@@ -120,3 +120,80 @@ describe('Collision with NaN gap markers', () => {
     expect(hit2).toBe(true);
   });
 });
+
+describe('Self-trail grace radius', () => {
+  it('ignores vertically stacked own-trail segments within grace radius', () => {
+    const trail = new SimTrail();
+    // Simulate steep pitch: trail segments at nearly the same XZ but different Y
+    // Bike is at (0, 10, 0), trail segments are directly below at (0, 0..8, 0)
+    trail.points = [
+      { x: -0.5, y: 0, z: 0 },
+      { x: 0.5, y: 2, z: 0 },
+      { x: 1.0, y: 4, z: 0 },
+      { x: 0.8, y: 6, z: 0 },
+      { x: 0.3, y: 8, z: 0 },
+      // these last points are within TRAIL_SKIP_SEGMENTS and will be skipped anyway
+      { x: 0.1, y: 9, z: 0 },
+      { x: 0.0, y: 9.5, z: 0 },
+      { x: 0.0, y: 10, z: 0 },
+    ];
+
+    // Bike moves from (0, -1) to (0, 1) at y=10 — crosses the trail segments in XZ
+    // but all segment endpoints are within 4.0 XZ of newPos (0, 1)
+    const hit = checkTrailCollision(
+      { x: 0, z: -1 },
+      { x: 0, z: 1 },
+      0, // bikeY at ground level — overlaps trail vertically
+      [trail],
+      0, // own trail
+    );
+    expect(hit).toBe(false);
+  });
+
+  it('still detects distant own-trail collision', () => {
+    const trail = new SimTrail();
+    // Trail far from bike in XZ — like a U-turn scenario
+    trail.points = [
+      { x: -10, y: 0, z: 0 },
+      { x: 10, y: 0, z: 0 },
+      // padding for TRAIL_SKIP_SEGMENTS
+      { x: 20, y: 0, z: 0 },
+      { x: 30, y: 0, z: 0 },
+      { x: 40, y: 0, z: 0 },
+      { x: 50, y: 0, z: 0 },
+    ];
+
+    // Bike crosses the first segment at x=0 — endpoints at (-10,0) and (10,0)
+    // are well beyond grace radius of 4.0 from newPos (0,5)
+    const hit = checkTrailCollision(
+      { x: 0, z: -5 },
+      { x: 0, z: 5 },
+      0,
+      [trail],
+      0, // own trail
+    );
+    expect(hit).toBe(true);
+  });
+
+  it('still detects other player trail within grace radius', () => {
+    const ownTrail = new SimTrail();
+    ownTrail.points = [];
+
+    const otherTrail = new SimTrail();
+    // Other player's trail is close in XZ — grace radius should NOT apply
+    otherTrail.points = [
+      { x: -1, y: 0, z: 0 },
+      { x: 1, y: 0, z: 0 },
+    ];
+
+    // Bike crosses the trail — both endpoints within grace radius of newPos
+    const hit = checkTrailCollision(
+      { x: 0, z: -5 },
+      { x: 0, z: 5 },
+      0,
+      [ownTrail, otherTrail],
+      0, // trail index 0 is own, index 1 is other
+    );
+    expect(hit).toBe(true);
+  });
+});

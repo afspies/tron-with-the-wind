@@ -79,9 +79,12 @@ export class Lobby {
   }
 
   showCreateJoin(): void {
-    this.onlinePanel.style.display = 'block';
+    const visible = this.onlinePanel.style.display !== 'none';
+    this.onlinePanel.style.display = visible ? 'none' : 'block';
     this.lobbyDiv.style.display = 'none';
-    (document.getElementById('join-input') as HTMLInputElement).value = '';
+    if (!visible) {
+      (document.getElementById('join-input') as HTMLInputElement).value = '';
+    }
   }
 
   private async attemptJoin(code: string): Promise<void> {
