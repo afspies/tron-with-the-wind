@@ -50,13 +50,13 @@ const CROWD_COLORS = [
 ];
 
 export class Crowd {
-  private mesh: THREE.InstancedMesh;
+  private meshes: THREE.InstancedMesh[] = [];
   private reactionTimer = 0;
   private material: THREE.ShaderMaterial;
 
   constructor(scene: THREE.Scene) {
-    // Compute crowd positions across all tiers and sides
-    const positions: Array<{ x: number; y: number; z: number; side: number }> = [];
+    // Compute crowd positions across all tiers and sides, bucketed by side
+    const buckets: Array<Array<{ x: number; y: number; z: number; sideIdx: number }>> = [[], [], [], []];
 
     const sides: Array<{ axis: 'x' | 'z'; sign: 1 | -1; sideIdx: number }> = [
       { axis: 'z', sign: -1, sideIdx: 0 },
@@ -65,43 +65,39 @@ export class Crowd {
       { axis: 'x', sign: 1, sideIdx: 3 },
     ];
 
-    const spacing = 2.0;
-
     for (const side of sides) {
       for (let t = 0; t < STADIUM_TIER_COUNT; t++) {
+        const tierSpacing = t >= 5 ? 3.0 : 2.0;
         const tierCenter = ARENA_HALF + STADIUM_INNER_GAP + t * STADIUM_TIER_DEPTH + STADIUM_TIER_DEPTH / 2;
         const tierTopY = (t + 1) * STADIUM_TIER_HEIGHT;
         const tierHalfSpan = ARENA_HALF + STADIUM_INNER_GAP + (t + 1) * STADIUM_TIER_DEPTH - STADIUM_TIER_DEPTH / 2;
-        const crowdPerRow = Math.floor((tierHalfSpan * 2) / spacing);
+        const crowdPerRow = Math.floor((tierHalfSpan * 2) / tierSpacing);
 
         for (let c = 0; c < crowdPerRow; c++) {
-          const along = -tierHalfSpan + spacing * 0.5 + c * spacing + (Math.random() - 0.5) * 0.5;
+          const along = -tierHalfSpan + tierSpacing * 0.5 + c * tierSpacing + (Math.random() - 0.5) * 0.5;
 
           if (side.axis === 'z') {
-            positions.push({
+            buckets[side.sideIdx].push({
               x: along,
               y: tierTopY,
               z: side.sign * tierCenter,
-              side: side.sideIdx,
+              sideIdx: side.sideIdx,
             });
           } else {
-            positions.push({
+            buckets[side.sideIdx].push({
               x: side.sign * tierCenter,
               y: tierTopY,
               z: along,
-              side: side.sideIdx,
+              sideIdx: side.sideIdx,
             });
           }
         }
       }
     }
 
-    const count = positions.length;
-
-    // Geometry: small person-sized quad
+    // Shared geometry and material
     const geo = new THREE.PlaneGeometry(0.8, 1.5);
 
-    // Shader material
     this.material = new THREE.ShaderMaterial({
       vertexShader: CROWD_VERTEX,
       fragmentShader: CROWD_FRAGMENT,
@@ -111,42 +107,52 @@ export class Crowd {
       },
     });
 
-    this.mesh = new THREE.InstancedMesh(geo, this.material, count);
-    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(
-      new Float32Array(count * 3), 3,
-    );
-
-    // Per-instance phase attribute
-    const phases = new Float32Array(count);
     const dummy = new THREE.Object3D();
 
-    for (let i = 0; i < count; i++) {
-      const p = positions[i];
+    // Create one InstancedMesh per side
+    for (let s = 0; s < 4; s++) {
+      const positions = buckets[s];
+      const count = positions.length;
 
-      dummy.position.set(p.x, p.y + 0.75, p.z);
+      const mesh = new THREE.InstancedMesh(geo, this.material, count);
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(
+        new Float32Array(count * 3), 3,
+      );
 
-      // Face toward arena center
-      if (p.side === 0) dummy.rotation.y = 0;           // north side faces south
-      else if (p.side === 1) dummy.rotation.y = Math.PI; // south side faces north
-      else if (p.side === 2) dummy.rotation.y = Math.PI / 2;  // west faces east
-      else dummy.rotation.y = -Math.PI / 2;              // east faces west
+      const phases = new Float32Array(count);
 
-      dummy.updateMatrix();
-      this.mesh.setMatrixAt(i, dummy.matrix);
+      for (let i = 0; i < count; i++) {
+        const p = positions[i];
 
-      // Random color from palette
-      const color = CROWD_COLORS[Math.floor(Math.random() * CROWD_COLORS.length)];
-      this.mesh.setColorAt(i, color);
+        dummy.position.set(p.x, p.y + 0.75, p.z);
 
-      // Random phase for bobbing offset
-      phases[i] = Math.random() * Math.PI * 2;
+        // Face toward arena center
+        if (p.sideIdx === 0) dummy.rotation.y = 0;
+        else if (p.sideIdx === 1) dummy.rotation.y = Math.PI;
+        else if (p.sideIdx === 2) dummy.rotation.y = Math.PI / 2;
+        else dummy.rotation.y = -Math.PI / 2;
+
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+
+        const color = CROWD_COLORS[Math.floor(Math.random() * CROWD_COLORS.length)];
+        mesh.setColorAt(i, color);
+
+        phases[i] = Math.random() * Math.PI * 2;
+      }
+
+      // Each mesh needs its own geometry clone to hold its own aPhase attribute
+      const sideGeo = geo.clone();
+      sideGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
+      mesh.geometry = sideGeo;
+
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.computeBoundingSphere();
+
+      scene.add(mesh);
+      this.meshes.push(mesh);
     }
-
-    geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-
-    scene.add(this.mesh);
   }
 
   onDeath(): void {
@@ -159,12 +165,19 @@ export class Crowd {
     // Decay reaction: quick rise (0.2s), slow settle (0.8s)
     if (this.reactionTimer > 0) {
       this.reactionTimer = Math.max(0, this.reactionTimer - dt);
-      // Shaped curve: fast attack, slow decay
       const t = this.reactionTimer;
       const reaction = t > 0.8 ? (1.0 - t) / 0.2 : t / 0.8;
       this.material.uniforms.uReaction.value = reaction;
     } else {
       this.material.uniforms.uReaction.value = 0;
     }
+  }
+
+  dispose(): void {
+    for (const mesh of this.meshes) {
+      mesh.geometry.dispose();
+      mesh.dispose();
+    }
+    this.material.dispose();
   }
 }
