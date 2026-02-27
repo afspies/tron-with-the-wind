@@ -21,18 +21,21 @@ export class Scoreboard {
     round: number,
     onContinue: () => void,
     isOnlineClient = false,
+    names?: string[],
   ): void {
+    const winnerName = names?.[winnerIndex] || PLAYER_NAMES[winnerIndex];
     this.titleEl.textContent = winnerIndex >= 0
-      ? `${PLAYER_NAMES[winnerIndex]} Wins the Round!`
+      ? `${winnerName} Wins the Round!`
       : 'Draw!';
 
     this.scoreboardEl.innerHTML = '';
     for (let i = 0; i < scores.length; i++) {
+      const displayName = names?.[i] || PLAYER_NAMES[i];
       const row = document.createElement('div');
       row.className = `scoreboard-row${i === winnerIndex ? ' winner' : ''}`;
       row.innerHTML = `
         <div class="score-dot" style="background:${PLAYER_COLORS[i]}"></div>
-        <span class="score-name">${PLAYER_NAMES[i]}</span>
+        <span class="score-name">${displayName}</span>
         <span class="score-wins">${scores[i]}</span>
       `;
       this.scoreboardEl.appendChild(row);
@@ -64,9 +67,10 @@ export class Scoreboard {
     }, 5000);
   }
 
-  showGameOver(winnerIndex: number, onPlayAgain: () => void, onMainMenu: () => void): void {
+  showGameOver(winnerIndex: number, onPlayAgain: () => void, onMainMenu: () => void, names?: string[]): void {
+    const winnerName = names?.[winnerIndex] || PLAYER_NAMES[winnerIndex];
     this.winnerEl.textContent = winnerIndex >= 0
-      ? `${PLAYER_NAMES[winnerIndex]} is Victorious!`
+      ? `${winnerName} is Victorious!`
       : 'No Victor This Day';
     this.winnerEl.style.color = winnerIndex >= 0 ? PLAYER_COLORS[winnerIndex] : '#f0e6d3';
     this.gameOverEl.style.display = 'flex';

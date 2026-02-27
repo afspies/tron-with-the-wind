@@ -37,6 +37,8 @@ export class Game {
   private clock = new THREE.Clock();
   private countdownTimer = 0;
   private elapsedTime = 0;
+  private roundEndTimeout: ReturnType<typeof setTimeout> | null = null;
+  private rPressed = false; // edge-detect for R key restart
 
   // Headless simulation (quickplay)
   private simulation: Simulation | null = null;
@@ -63,6 +65,9 @@ export class Game {
   private touchControls: TouchControls;
   private chat: Chat;
   private minimap: Minimap;
+
+  // Player names (indexed by bike order)
+  private names: string[] = [];
 
   constructor() {
     this.gameCamera = new GameCamera();
@@ -95,6 +100,7 @@ export class Game {
 
     this.lobby = new Lobby(
       this.colyseus,
+      () => this.menu.getNickname(),
       () => this.handleLobbyStart(),
       () => {
         // Leave lobby — back to menu
@@ -215,6 +221,7 @@ export class Game {
           this.round.roundNumber,
           () => {}, // Server controls round advancement
           true, // isOnlineClient
+          this.names,
         );
         break;
       }
@@ -255,6 +262,7 @@ export class Game {
             this.state = 'MENU';
             this.menu.show();
           },
+          this.names,
         );
         this.stopRecordingAndShowHighlights();
         break;
@@ -303,9 +311,12 @@ export class Game {
     this.gameCamera.setLocalBikeIndex(localBikeIdx >= 0 ? localBikeIdx : 0);
     this.gameCamera.setMode('chase');
 
+    // Build names
+    this.names = this.buildNames();
+
     // Chat
     this.chat.show(
-      PLAYER_NAMES[localSlot],
+      this.names[localBikeIdx >= 0 ? localBikeIdx : 0],
       PLAYER_COLORS[localSlot],
       (msg) => this.colyseus.sendChat(msg.text),
     );
@@ -317,6 +328,7 @@ export class Game {
       serverState.roundsToWin,
       localBikeIdx >= 0 ? localBikeIdx : undefined,
       true,
+      this.names,
     );
     this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
     this.touchControls.show();
@@ -342,6 +354,7 @@ export class Game {
       this.config.roundsToWin,
       localBikeIdx >= 0 ? localBikeIdx : undefined,
       true,
+      this.names,
     );
     this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
     this.touchControls.show();
@@ -356,9 +369,39 @@ export class Game {
     // Server will change phase to 'countdown', triggering initOnlineGame via onStateChange
   }
 
+  /** Build names array from server state (online) or nickname + defaults (quickplay). */
+  private buildNames(): string[] {
+    const names: string[] = [];
+    if (this.config?.mode === 'online') {
+      const lobbyState = this.colyseus.getLobbyState();
+      const nameBySlot = new Map<number, string>();
+      for (const p of lobbyState.players) {
+        if (p.name) nameBySlot.set(p.slot, p.name);
+      }
+      for (let i = 0; i < this.bikes.length; i++) {
+        const slot = this.bikes[i].playerIndex;
+        names.push(nameBySlot.get(slot) || PLAYER_NAMES[slot]);
+      }
+    } else {
+      // Quickplay: slot 0 = local human
+      const nickname = this.menu.getNickname();
+      for (let i = 0; i < this.bikes.length; i++) {
+        const slot = this.bikes[i].playerIndex;
+        names.push(slot === 0 && nickname ? nickname : PLAYER_NAMES[slot]);
+      }
+    }
+    return names;
+  }
+
   // --- Game Start (Quickplay) ---
 
   private startGame(config: GameConfig): void {
+    // Clear any pending round-end timeout to prevent stale callbacks
+    if (this.roundEndTimeout !== null) {
+      clearTimeout(this.roundEndTimeout);
+      this.roundEndTimeout = null;
+    }
+
     this.config = config;
     this.menu.hide();
     this.scoreboard.hideAll();
@@ -423,14 +466,19 @@ export class Game {
     this.countdownTimer = COUNTDOWN_DURATION;
     this.countdownEl.style.display = 'block';
 
+    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config.localSlot ?? 0));
+
+    this.names = this.buildNames();
     this.hud.show(
       this.bikes.length,
       this.round.roundNumber,
       this.config.roundsToWin,
+      localBikeIdx >= 0 ? localBikeIdx : 0,
+      false,
+      this.names,
     );
 
     // Show minimap
-    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config.localSlot ?? 0));
     this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
 
     // Show touch controls during gameplay
@@ -495,6 +543,18 @@ export class Game {
 
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.elapsedTime += dt;
+
+    // Quick restart (R key) in quickplay mode — edge-detected
+    const rDown = this.input.isKeyPressed('KeyR');
+    const canQuickRestart = this.config && this.config.mode !== 'online' && this.state !== 'MENU';
+    if (canQuickRestart && rDown && !this.rPressed) {
+      this.rPressed = rDown;
+      this.scoreboard.hideAll();
+      this.countdownEl.style.display = 'none';
+      this.startGame(this.config);
+      return;
+    }
+    this.rPressed = rDown;
 
     switch (this.state) {
       case 'COUNTDOWN': {
@@ -622,7 +682,8 @@ export class Game {
 
     const gameWinner = this.round.getWinner(this.config.roundsToWin);
     if (gameWinner >= 0) {
-      setTimeout(() => {
+      this.roundEndTimeout = setTimeout(() => {
+        this.roundEndTimeout = null;
         this.state = 'GAME_OVER';
         this.scoreboard.showGameOver(
           gameWinner,
@@ -636,16 +697,20 @@ export class Game {
             this.state = 'MENU';
             this.menu.show();
           },
+          this.names,
         );
         this.stopRecordingAndShowHighlights();
       }, 1500);
     } else {
-      setTimeout(() => {
+      this.roundEndTimeout = setTimeout(() => {
+        this.roundEndTimeout = null;
         this.scoreboard.showRoundEnd(
           winnerIndex,
           this.round.scores,
           this.round.roundNumber,
           () => this.startRound(),
+          false,
+          this.names,
         );
       }, 1500);
     }
