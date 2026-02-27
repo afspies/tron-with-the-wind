@@ -3,6 +3,8 @@ import type { PlayerInput } from '@tron/shared';
 
 export type TutorialEvent = 'none' | 'step-complete' | 'tutorial-complete' | 'player-died';
 
+const STEP_COMPLETE_GRACE = 2.5; // seconds to show "Complete!" before advancing
+
 interface TutorialStep {
   id: string;
   title: string;
@@ -117,6 +119,10 @@ export class TutorialManager {
   private stepCount = TUTORIAL_STEPS.length;
   private visible = false;
 
+  // Grace period: step completed, waiting before advancing
+  private completed = false;
+  private graceTimer = 0;
+
   constructor() {
     this.overlay = document.getElementById('tutorial-overlay')!;
     this.progressEl = document.getElementById('tutorial-progress')!;
@@ -150,6 +156,8 @@ export class TutorialManager {
   startStep(index: number): void {
     this.currentStep = index;
     this.acc = this.freshAccumulators();
+    this.completed = false;
+    this.graceTimer = 0;
     this.updateDOM();
   }
 
@@ -168,6 +176,18 @@ export class TutorialManager {
   update(simBike: SimBike, input: PlayerInput, dt: number): TutorialEvent {
     if (!this.visible) return 'none';
     if (!simBike.alive) return 'player-died';
+
+    // If already completed, count down grace timer
+    if (this.completed) {
+      this.graceTimer -= dt;
+      if (this.graceTimer <= 0) {
+        if (this.currentStep >= this.stepCount - 1) {
+          return 'tutorial-complete';
+        }
+        return 'step-complete';
+      }
+      return 'none';
+    }
 
     const a = this.acc;
     a.elapsed += dt;
@@ -192,10 +212,9 @@ export class TutorialManager {
     // Check completion
     const step = TUTORIAL_STEPS[this.currentStep];
     if (step && step.check(a)) {
-      if (this.currentStep >= this.stepCount - 1) {
-        return 'tutorial-complete';
-      }
-      return 'step-complete';
+      this.completed = true;
+      this.graceTimer = STEP_COMPLETE_GRACE;
+      this.showCompletedState();
     }
 
     return 'none';
@@ -225,13 +244,41 @@ export class TutorialManager {
     };
   }
 
+  private showCompletedState(): void {
+    const step = TUTORIAL_STEPS[this.currentStep];
+    if (!step) return;
+
+    this.overlay.classList.add('step-done');
+    this.titleEl.textContent = `${step.title} - Complete!`;
+    this.instructionEl.innerHTML = '';
+    this.hintEl.textContent = this.currentStep < this.stepCount - 1
+      ? 'Next step coming up...'
+      : 'Well done!';
+    this.skipBtn.style.display = 'none';
+
+    // Mark current pip as done
+    const pips = this.progressEl.querySelectorAll('.tutorial-pip');
+    const pip = pips[this.currentStep];
+    if (pip) {
+      pip.classList.remove('active');
+      pip.classList.add('done');
+    }
+
+    // Animate
+    this.overlay.classList.remove('tutorial-step-animate');
+    void this.overlay.offsetWidth;
+    this.overlay.classList.add('tutorial-step-animate');
+  }
+
   private updateDOM(): void {
     const step = TUTORIAL_STEPS[this.currentStep];
     if (!step) return;
 
+    this.overlay.classList.remove('step-done');
     this.titleEl.textContent = `Step ${this.currentStep + 1}: ${step.title}`;
     this.instructionEl.innerHTML = step.instruction;
     this.hintEl.textContent = step.hint;
+    this.skipBtn.style.display = '';
 
     // Update pips
     const pips = this.progressEl.querySelectorAll('.tutorial-pip');
