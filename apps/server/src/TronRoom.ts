@@ -30,6 +30,7 @@ export class TronRoom extends Room<TronState> {
         drift: !!data.drift,
         pitchUp: !!data.pitchUp,
         pitchDown: !!data.pitchDown,
+        turnFraction: Math.max(0, Math.min(1, Number(data.turnFraction) || 1)),
       });
     });
 

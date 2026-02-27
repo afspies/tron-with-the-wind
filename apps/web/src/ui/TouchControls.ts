@@ -6,6 +6,7 @@ interface TouchLayoutConfig {
 
 const DEAD_ZONE = 15;
 const ACTIVE_THRESHOLD = 25;
+const MAX_DRAG = 80; // px drag distance for full turn rate
 const TAP_TIME_MS = 200;
 const TAP_DISTANCE = 15;
 const JUMP_PULSE_MS = 100;
@@ -137,13 +138,17 @@ export class TouchControls {
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
 
-    // Horizontal: steering
+    // Horizontal: proportional steering
     if (absDx > ACTIVE_THRESHOLD) {
       this.input.setVirtualInput('left', dx < 0);
       this.input.setVirtualInput('right', dx > 0);
+      // Analog fraction: ramp from 0 at threshold to 1 at MAX_DRAG
+      const fraction = Math.min(1, (absDx - ACTIVE_THRESHOLD) / (MAX_DRAG - ACTIVE_THRESHOLD));
+      this.input.setAnalogValue('turnFraction', fraction);
     } else if (absDx < DEAD_ZONE) {
       this.input.setVirtualInput('left', false);
       this.input.setVirtualInput('right', false);
+      this.input.setAnalogValue('turnFraction', 1); // reset for keyboard
     }
 
     // Vertical: pitch (drag up = pitch down / nose down, drag down = pitch up / nose up)
@@ -183,6 +188,7 @@ export class TouchControls {
     this.input.setVirtualInput('right', false);
     this.input.setVirtualInput('pitchUp', false);
     this.input.setVirtualInput('pitchDown', false);
+    this.input.setAnalogValue('turnFraction', 1); // reset for keyboard
   }
 
   private makeButton(className: string, label: string): HTMLElement {
