@@ -1,21 +1,26 @@
 import { PLAYER_COLORS, PLAYER_NAMES, BOOST_MAX, DOUBLE_JUMP_COOLDOWN } from '@tron/shared';
 import { Bike } from '../game/Bike';
+import { PlayerHUD } from './PlayerHUD';
 
 export class HUD {
   private hudEl: HTMLElement;
   private playersEl: HTMLElement;
   private roundEl: HTMLElement;
   private pingEl: HTMLElement | null = null;
+  private playerHUD: PlayerHUD;
+  private localPlayerIndex: number | undefined;
 
   constructor() {
     this.hudEl = document.getElementById('hud')!;
     this.playersEl = document.getElementById('hud-players')!;
     this.roundEl = document.getElementById('hud-round')!;
+    this.playerHUD = new PlayerHUD();
   }
 
   show(playerCount: number, round: number, roundsToWin: number, localPlayerIndex?: number, isOnline = false, names?: string[]): void {
     this.hudEl.style.display = 'block';
     this.playersEl.innerHTML = '';
+    this.localPlayerIndex = localPlayerIndex;
 
     // Ping indicator for online play
     if (isOnline && !this.pingEl) {
@@ -24,6 +29,11 @@ export class HUD {
       this.pingEl.textContent = '-- ms';
       this.pingEl.style.color = '#888';
       this.hudEl.appendChild(this.pingEl);
+    }
+
+    // Show local player's dedicated HUD widgets
+    if (localPlayerIndex !== undefined) {
+      this.playerHUD.show(PLAYER_COLORS[localPlayerIndex]);
     }
 
     for (let i = 0; i < playerCount; i++) {
@@ -50,6 +60,11 @@ export class HUD {
   }
 
   update(bikes: Bike[], round: number, roundsToWin: number): void {
+    // Update local player's dedicated HUD widgets
+    if (this.localPlayerIndex !== undefined && bikes[this.localPlayerIndex]) {
+      this.playerHUD.update(bikes[this.localPlayerIndex]);
+    }
+
     for (let i = 0; i < bikes.length; i++) {
       const el = document.getElementById(`hud-p${i}`);
       if (el) {
@@ -107,6 +122,7 @@ export class HUD {
 
   hide(): void {
     this.hudEl.style.display = 'none';
+    this.playerHUD.hide();
     if (this.pingEl) {
       this.pingEl.remove();
       this.pingEl = null;

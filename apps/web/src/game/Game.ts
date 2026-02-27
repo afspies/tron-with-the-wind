@@ -441,18 +441,19 @@ export class Game {
     this.countdownTimer = COUNTDOWN_DURATION;
     this.countdownEl.style.display = 'block';
 
+    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config.localSlot ?? 0));
+
     this.names = this.buildNames();
     this.hud.show(
       this.bikes.length,
       this.round.roundNumber,
       this.config.roundsToWin,
-      undefined,
+      localBikeIdx >= 0 ? localBikeIdx : 0,
       false,
       this.names,
     );
 
     // Show minimap
-    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config.localSlot ?? 0));
     this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
 
     // Show touch controls during gameplay
