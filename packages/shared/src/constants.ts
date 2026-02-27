@@ -63,7 +63,7 @@ export const FLIGHT_MAX_PITCH = 1.22;          // ~70°, prevents fully vertical
 export const FLIGHT_THRUST = 32.0;             // upward acceleration (vs GRAVITY=20)
 export const FLIGHT_AIR_TURN_MULT = 0.5;       // yaw turn rate halved during flight
 export const FLIGHT_BOOST_DRAIN_MULT = 1.3;    // boost drains 30% faster during flight
-export const FLIGHT_LANDING_MAX_PITCH = 0.79;  // ~45°, crash if landing steeper
+export const FLIGHT_LANDING_MAX_PITCH = 1.22;  // ~70°, match FLIGHT_MAX_PITCH
 
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
