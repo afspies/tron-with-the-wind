@@ -1,4 +1,4 @@
-import { InputManager, DEFAULT_KEY_MAPS, type KeyMapping } from '../game/Input';
+import { InputManager, type KeyMapping } from '../game/Input';
 
 const KEY_DISPLAY_NAMES: Record<string, string> = {
   Space: 'Space',
@@ -47,19 +47,19 @@ const KEY_DISPLAY_NAMES: Record<string, string> = {
   NumpadEnter: 'Num Enter',
 };
 
-function displayName(code: string): string {
-  if (KEY_DISPLAY_NAMES[code]) return KEY_DISPLAY_NAMES[code];
+function formatKeyCode(code: string): string {
+  if (code in KEY_DISPLAY_NAMES) return KEY_DISPLAY_NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
   return code;
 }
 
-interface ActionDef {
-  action: keyof KeyMapping;
-  label: string;
-}
+const BLOCKED_KEYS = new Set([
+  'Tab', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+  'MetaLeft', 'MetaRight', 'ContextMenu',
+]);
 
-const ACTIONS: ActionDef[] = [
+const ACTIONS: { action: keyof KeyMapping; label: string }[] = [
   { action: 'left', label: 'Turn Left' },
   { action: 'right', label: 'Turn Right' },
   { action: 'jump', label: 'Jump' },
@@ -73,7 +73,7 @@ export class Settings {
   private el: HTMLElement;
   private bindingsEl: HTMLElement;
   private onBack: () => void;
-  private listening: { action: keyof KeyMapping; slotIndex: number; cell: HTMLElement } | null = null;
+  private listeningCell: HTMLElement | null = null;
   private keyListener: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(onBack: () => void) {
@@ -82,7 +82,6 @@ export class Settings {
     this.bindingsEl = document.getElementById('settings-bindings')!;
 
     document.getElementById('btn-settings-back')!.addEventListener('click', () => {
-      this.cancelListening();
       this.hide();
       this.onBack();
     });
@@ -117,17 +116,15 @@ export class Settings {
       labelEl.textContent = label;
       row.appendChild(labelEl);
 
-      // Two key slots per action
       for (let slotIndex = 0; slotIndex < 2; slotIndex++) {
         const keyCode = bindings[action][slotIndex];
         const cell = document.createElement('div');
         cell.className = 'key-cell' + (keyCode ? '' : ' empty');
-        cell.textContent = keyCode ? displayName(keyCode) : '—';
+        cell.textContent = keyCode ? formatKeyCode(keyCode) : '\u2014';
         cell.addEventListener('click', () => this.startListening(action, slotIndex, cell));
         row.appendChild(cell);
       }
 
-      // Spacer to balance the label so key cells are visually centered
       const spacer = document.createElement('div');
       spacer.className = 'settings-spacer';
       row.appendChild(spacer);
@@ -142,7 +139,7 @@ export class Settings {
     cell.classList.add('listening');
     cell.classList.remove('empty');
     cell.textContent = 'Press a key...';
-    this.listening = { action, slotIndex, cell };
+    this.listeningCell = cell;
 
     this.keyListener = (e: KeyboardEvent) => {
       e.preventDefault();
@@ -154,10 +151,11 @@ export class Settings {
         return;
       }
 
+      if (BLOCKED_KEYS.has(e.code)) return;
+
       this.bindKey(action, slotIndex, e.code);
     };
 
-    // Use capture to intercept before InputManager
     window.addEventListener('keydown', this.keyListener, true);
   }
 
@@ -166,38 +164,36 @@ export class Settings {
       window.removeEventListener('keydown', this.keyListener, true);
       this.keyListener = null;
     }
-    if (this.listening) {
-      this.listening.cell.classList.remove('listening');
-      this.listening = null;
+    if (this.listeningCell) {
+      this.listeningCell.classList.remove('listening');
+      this.listeningCell = null;
     }
   }
 
   private bindKey(action: keyof KeyMapping, slotIndex: number, code: string): void {
     const bindings = InputManager.getPlayer0Bindings();
 
-    // Remove conflict: if this key is already bound to another action/slot, remove it
+    // Remove this key from any other action/slot to prevent conflicts
     for (const act of ACTIONS) {
       const keys = bindings[act.action];
       for (let i = keys.length - 1; i >= 0; i--) {
-        if (keys[i] === code) {
-          // Don't remove from the same slot we're about to set
-          if (act.action === action && i === slotIndex) continue;
+        if (keys[i] === code && !(act.action === action && i === slotIndex)) {
           keys.splice(i, 1);
         }
       }
     }
 
-    // Set the new binding
-    // Ensure the array is large enough
+    // Pad the array if the slot doesn't exist yet, then assign
     while (bindings[action].length <= slotIndex) {
       bindings[action].push('');
     }
     bindings[action][slotIndex] = code;
 
-    // Clean up empty trailing slots
+    // Trim empty trailing slots from all actions
     for (const act of ACTIONS) {
-      while (bindings[act.action].length > 0 && bindings[act.action][bindings[act.action].length - 1] === '') {
-        bindings[act.action].pop();
+      const keys = bindings[act.action];
+      while (keys.length > 0 && keys[keys.length - 1] === '') {
+        keys.pop();
       }
     }
 

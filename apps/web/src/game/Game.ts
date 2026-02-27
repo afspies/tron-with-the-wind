@@ -82,21 +82,12 @@ export class Game {
     // Network
     this.colyseus = new ColyseusClient();
 
-    this.settings = new Settings(() => {
-      this.settings.hide();
-      this.menu.show();
-    });
+    this.settings = new Settings(() => this.menu.show());
 
     this.menu = new Menu(
       (config) => this.startGame(config),
-      () => {
-        // Online button clicked — show create/join
-        this.lobby.showCreateJoin();
-      },
-      () => {
-        // Settings button clicked
-        this.settings.show();
-      },
+      () => this.lobby.showCreateJoin(),
+      () => this.settings.show(),
     );
 
     this.lobby = new Lobby(
@@ -269,6 +260,7 @@ export class Game {
   private initOnlineGame(serverState: any): void {
     this.lobby.hide();
     this.menu.hide();
+    this.settings.hide();
     this.scoreboard.hideAll();
     this.cleanupBikes();
 
@@ -398,6 +390,7 @@ export class Game {
 
     this.config = config;
     this.menu.hide();
+    this.settings.hide();
     this.scoreboard.hideAll();
 
     // Clean up old bikes

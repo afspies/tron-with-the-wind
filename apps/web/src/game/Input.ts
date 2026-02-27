@@ -28,26 +28,25 @@ function loadCustomBindings(): KeyMapping | null {
     const raw = localStorage.getItem(KEYBINDINGS_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    // Validate shape
-    const actions: (keyof KeyMapping)[] = ['left', 'right', 'jump', 'boost', 'drift', 'pitchUp', 'pitchDown'];
-    for (const action of actions) {
-      if (!Array.isArray(parsed[action])) return null;
-    }
-    return parsed as KeyMapping;
+    const requiredKeys = Object.keys(DEFAULT_KEY_MAPS[0]) as (keyof KeyMapping)[];
+    const valid = requiredKeys.every(
+      (key) => Array.isArray(parsed[key]) && parsed[key].every((v: unknown) => typeof v === 'string'),
+    );
+    return valid ? (parsed as KeyMapping) : null;
   } catch {
     return null;
   }
 }
 
-function deepCopyMapping(m: KeyMapping): KeyMapping {
+function deepCopyMapping(mapping: KeyMapping): KeyMapping {
   return {
-    left: [...m.left],
-    right: [...m.right],
-    jump: [...m.jump],
-    boost: [...m.boost],
-    drift: [...m.drift],
-    pitchUp: [...m.pitchUp],
-    pitchDown: [...m.pitchDown],
+    left: [...mapping.left],
+    right: [...mapping.right],
+    jump: [...mapping.jump],
+    boost: [...mapping.boost],
+    drift: [...mapping.drift],
+    pitchUp: [...mapping.pitchUp],
+    pitchDown: [...mapping.pitchDown],
   };
 }
 
@@ -81,7 +80,7 @@ export class InputManager {
   }
 
   static getPlayer0Bindings(): KeyMapping {
-    return keyMaps[0];
+    return deepCopyMapping(keyMaps[0]);
   }
 
   static setPlayer0Bindings(mapping: KeyMapping): void {
