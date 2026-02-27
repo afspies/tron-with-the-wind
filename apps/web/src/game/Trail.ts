@@ -9,6 +9,7 @@ export class Trail {
   private geometry: THREE.BufferGeometry;
   private material: THREE.MeshStandardMaterial;
   private lastSamplePos: TrailPoint | null = null;
+  private liveHead: TrailPoint | null = null;
   private maxVerts = 20000;
 
   constructor(color: string, scene: THREE.Scene) {
@@ -52,6 +53,9 @@ export class Trail {
   private rebuildGeometry(): void {
     const totalSegs = this.points.length - 1;
     this.rebuildSegments(Math.max(0, totalSegs - TRAIL_RAMP_SEGMENTS - 1));
+    if (this.liveHead) {
+      this.rebuildTailWithLiveHead();
+    }
   }
 
   addPoints(pts: TrailPoint[]): void {
@@ -59,6 +63,7 @@ export class Trail {
     this.points.push(...pts);
     this.lastSamplePos = pts[pts.length - 1];
     this.rebuildSegments(0);
+    if (this.liveHead) this.rebuildTailWithLiveHead();
   }
 
   /** Replace all trail points (used for full trail resync from host) */
@@ -66,6 +71,65 @@ export class Trail {
     this.points = [...pts];
     this.lastSamplePos = pts.length > 0 ? pts[pts.length - 1] : null;
     this.rebuildSegments(0);
+    if (this.liveHead) this.rebuildTailWithLiveHead();
+  }
+
+  /** Compute ramped trail height based on distance from the trailing end */
+  private rampHeight(distFromEnd: number): number {
+    if (distFromEnd >= TRAIL_RAMP_SEGMENTS) return TRAIL_HEIGHT;
+    return TRAIL_HEIGHT * (distFromEnd / TRAIL_RAMP_SEGMENTS);
+  }
+
+  /** Write a single wall segment (two triangles / 6 verts) into the geometry buffers */
+  private writeSegment(
+    posArr: Float32Array,
+    normArr: Float32Array,
+    baseIdx: number,
+    p1: TrailPoint,
+    p2: TrailPoint,
+    h1: number,
+    h2: number,
+  ): void {
+    const dx = p2.x - p1.x;
+    const dz = p2.z - p1.z;
+    const len = Math.sqrt(dx * dx + dz * dz);
+    const nx = -dz / (len || 1);
+    const nz = dx / (len || 1);
+
+    // Two-triangle quad: bottom-left, top-left, top-right, bottom-left, top-right, bottom-right
+    posArr[baseIdx]      = p1.x; posArr[baseIdx + 1]  = p1.y;      posArr[baseIdx + 2]  = p1.z;
+    posArr[baseIdx + 3]  = p1.x; posArr[baseIdx + 4]  = p1.y + h1; posArr[baseIdx + 5]  = p1.z;
+    posArr[baseIdx + 6]  = p2.x; posArr[baseIdx + 7]  = p2.y + h2; posArr[baseIdx + 8]  = p2.z;
+    posArr[baseIdx + 9]  = p1.x; posArr[baseIdx + 10] = p1.y;      posArr[baseIdx + 11] = p1.z;
+    posArr[baseIdx + 12] = p2.x; posArr[baseIdx + 13] = p2.y + h2; posArr[baseIdx + 14] = p2.z;
+    posArr[baseIdx + 15] = p2.x; posArr[baseIdx + 16] = p2.y;      posArr[baseIdx + 17] = p2.z;
+
+    for (let j = 0; j < 6; j++) {
+      normArr[baseIdx + j * 3]     = nx;
+      normArr[baseIdx + j * 3 + 1] = 0;
+      normArr[baseIdx + j * 3 + 2] = nz;
+    }
+  }
+
+  /** Write a degenerate (zero-area) segment for NaN gap markers */
+  private writeDegenerateSegment(
+    posArr: Float32Array,
+    normArr: Float32Array,
+    baseIdx: number,
+  ): void {
+    for (let j = 0; j < 18; j++) posArr[baseIdx + j] = 0;
+    for (let j = 0; j < 18; j++) normArr[baseIdx + j] = 0;
+  }
+
+  private getBufferArrays(): { posArr: Float32Array; normArr: Float32Array; positions: THREE.BufferAttribute; normals: THREE.BufferAttribute } {
+    const positions = this.geometry.attributes.position as THREE.BufferAttribute;
+    const normals = this.geometry.attributes.normal as THREE.BufferAttribute;
+    return {
+      posArr: positions.array as Float32Array,
+      normArr: normals.array as Float32Array,
+      positions,
+      normals,
+    };
   }
 
   private rebuildSegments(fromSeg: number): void {
@@ -75,20 +139,15 @@ export class Trail {
     const totalSegs = pts.length - 1;
     if (totalSegs * 6 > this.maxVerts) return;
 
-    const positions = this.geometry.attributes.position as THREE.BufferAttribute;
-    const normals = this.geometry.attributes.normal as THREE.BufferAttribute;
-    const posArr = positions.array as Float32Array;
-    const normArr = normals.array as Float32Array;
+    const { posArr, normArr, positions, normals } = this.getBufferArrays();
 
     for (let i = fromSeg; i < totalSegs; i++) {
       const p1 = pts[i];
       const p2 = pts[i + 1];
       const baseIdx = i * 18;
 
-      // NaN gap marker — emit degenerate (zero-area) triangle
       if (isNaN(p1.x) || isNaN(p2.x)) {
-        for (let j = 0; j < 18; j++) posArr[baseIdx + j] = 0;
-        for (let j = 0; j < 18; j++) normArr[baseIdx + j] = 0;
+        this.writeDegenerateSegment(posArr, normArr, baseIdx);
         continue;
       }
 
@@ -194,11 +253,67 @@ export class Trail {
     this.points.push(...newPts);
     this.lastSamplePos = newPts[newPts.length - 1];
     this.rebuildSegments(Math.max(0, prevLen - 1 - TRAIL_RAMP_SEGMENTS));
+    if (this.liveHead) this.rebuildTailWithLiveHead();
+  }
+
+  updateLiveHead(x: number, y: number, z: number): void {
+    this.liveHead = { x, y, z };
+    this.rebuildTailWithLiveHead();
+  }
+
+  clearLiveHead(): void {
+    if (this.liveHead) {
+      this.liveHead = null;
+      // Rebuild tail segments with original heights (no live head offset)
+      const totalSegs = this.points.length - 1;
+      if (totalSegs > 0) {
+        this.rebuildSegments(Math.max(0, totalSegs - TRAIL_RAMP_SEGMENTS));
+      }
+    }
+  }
+
+  private rebuildTailWithLiveHead(): void {
+    if (!this.liveHead) return;
+    const pts = this.points;
+    if (pts.length < 1) return;
+
+    const lastStored = pts[pts.length - 1];
+    if (isNaN(lastStored.x)) return;
+
+    const storedSegs = pts.length - 1;
+    const totalWithHead = storedSegs + 1;
+    if (totalWithHead * 6 > this.maxVerts) return;
+
+    const { posArr, normArr, positions, normals } = this.getBufferArrays();
+
+    // Rebuild ramp segments with heights shifted by +1 for the live head segment
+    const startSeg = Math.max(0, storedSegs - TRAIL_RAMP_SEGMENTS);
+    for (let i = startSeg; i < storedSegs; i++) {
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      if (isNaN(p1.x) || isNaN(p2.x)) continue;
+
+      const h1 = this.rampHeight(totalWithHead - i);
+      const h2 = this.rampHeight(totalWithHead - (i + 1));
+      this.writeSegment(posArr, normArr, i * 18, p1, p2, h1, h2);
+    }
+
+    // Live head segment: last stored point to current bike position
+    this.writeSegment(
+      posArr, normArr, storedSegs * 18,
+      lastStored, this.liveHead,
+      this.rampHeight(1), 0,
+    );
+
+    positions.needsUpdate = true;
+    normals.needsUpdate = true;
+    this.geometry.setDrawRange(0, totalWithHead * 6);
   }
 
   reset(): void {
     this.points = [];
     this.lastSamplePos = null;
+    this.liveHead = null;
     this.geometry.setDrawRange(0, 0);
   }
 

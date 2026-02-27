@@ -140,14 +140,40 @@ describe('Self-trail grace radius', () => {
 
     // Bike moves from (0, -1) to (0, 1) at y=10 — crosses the trail segments in XZ
     // but all segment endpoints are within 4.0 XZ of newPos (0, 1)
+    // Grace radius applies because |bikeY - avgSegY| > BIKE_COLLISION_HEIGHT
     const hit = checkTrailCollision(
       { x: 0, z: -1 },
       { x: 0, z: 1 },
-      0, // bikeY at ground level — overlaps trail vertically
+      10, // bikeY elevated — grace radius applies to vertically stacked trail below
       [trail],
       0, // own trail
     );
     expect(hit).toBe(false);
+  });
+
+  it('detects ground-level own-trail collision within grace radius', () => {
+    const trail = new SimTrail();
+    // Trail and bike both at ground level (Y=0) — grace radius should NOT apply
+    trail.points = [
+      { x: -1, y: 0, z: 0 },
+      { x: 1, y: 0, z: 0 },
+      // padding for TRAIL_SKIP_SEGMENTS
+      { x: 2, y: 0, z: 1 },
+      { x: 3, y: 0, z: 2 },
+      { x: 4, y: 0, z: 3 },
+      { x: 5, y: 0, z: 4 },
+    ];
+
+    // Bike crosses segment 0 at (0, 0) — both endpoints within 4.0 XZ of newPos
+    // but at same Y, so grace radius is gated off — collision detected
+    const hit = checkTrailCollision(
+      { x: 0, z: -5 },
+      { x: 0, z: 5 },
+      0, // bikeY at ground level, same as trail
+      [trail],
+      0, // own trail
+    );
+    expect(hit).toBe(true);
   });
 
   it('still detects distant own-trail collision', () => {

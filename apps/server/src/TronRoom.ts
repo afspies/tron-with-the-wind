@@ -10,7 +10,7 @@ const SIM_INTERVAL_MS = 33;   // 30 Hz physics
 
 export class TronRoom extends Room<TronState> {
   maxClients = MAX_PLAYERS;
-  patchRate = 50;              // 20 Hz state patches
+  patchRate = 33;              // 30 Hz state patches — match physics tick rate
 
   private simulation: Simulation | null = null;
   private playerInputs = new Map<string, PlayerInput>();
