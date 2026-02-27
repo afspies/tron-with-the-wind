@@ -64,12 +64,16 @@ export function checkTrailCollision(
 
     for (let i = 0; i < endIdx; i++) {
       // For own trail, skip segments where both endpoints are within grace radius (XZ)
+      // but only when the trail is at a different height (vertical stacking during flight)
       if (isOwn) {
-        const dx0 = pts[i].x - newPos.x;
-        const dz0 = pts[i].z - newPos.z;
-        const dx1 = pts[i + 1].x - newPos.x;
-        const dz1 = pts[i + 1].z - newPos.z;
-        if (dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq) continue;
+        const avgSegY = (pts[i].y + pts[i + 1].y) * 0.5;
+        if (Math.abs(bikeY - avgSegY) > BIKE_COLLISION_HEIGHT) {
+          const dx0 = pts[i].x - newPos.x;
+          const dz0 = pts[i].z - newPos.z;
+          const dx1 = pts[i + 1].x - newPos.x;
+          const dz1 = pts[i + 1].z - newPos.z;
+          if (dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq) continue;
+        }
       }
 
       const u = lineSegmentIntersectParam(oldPos, newPos, pts[i], pts[i + 1]);
@@ -113,12 +117,16 @@ export function checkTrailCollisionDetailed(
 
     for (let i = 0; i < endIdx; i++) {
       // For own trail, skip segments where both endpoints are within grace radius (XZ)
+      // but only when the trail is at a different height (vertical stacking during flight)
       if (isOwn) {
-        const dx0 = pts[i].x - newPos.x;
-        const dz0 = pts[i].z - newPos.z;
-        const dx1 = pts[i + 1].x - newPos.x;
-        const dz1 = pts[i + 1].z - newPos.z;
-        if (dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq) continue;
+        const avgSegY = (pts[i].y + pts[i + 1].y) * 0.5;
+        if (Math.abs(bikeY - avgSegY) > BIKE_COLLISION_HEIGHT) {
+          const dx0 = pts[i].x - newPos.x;
+          const dz0 = pts[i].z - newPos.z;
+          const dx1 = pts[i + 1].x - newPos.x;
+          const dz1 = pts[i + 1].z - newPos.z;
+          if (dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq) continue;
+        }
       }
 
       const u = lineSegmentIntersectParam(oldPos, newPos, pts[i], pts[i + 1]);
