@@ -4,6 +4,7 @@ import {
   JUMP_INITIAL_VY, GRAVITY, JUMP_COOLDOWN,
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
   NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
+  RENDER_OFFSET_SNAP_THRESHOLD, RENDER_OFFSET_MIN_CORRECTION,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
   DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_TRACTION, NORMAL_TRACTION,
@@ -77,7 +78,11 @@ export class Bike {
   // Client-side prediction: local player's bike runs physics locally
   isLocalPredicted = false;
 
-  // Visual smoothing: rendered position converges toward authoritative position
+  // Render offset: after physics snaps to server, visual offset decays smoothly
+  renderOffset = new THREE.Vector3();
+  renderAngleOffset = 0;
+
+  // Rendered position/angle (includes render offset for predicted bikes)
   visualPos: THREE.Vector3;
   visualAngle: number;
   private visualInitialized = false;
@@ -344,27 +349,28 @@ export class Bike {
     // Update trail (follows bike Y for 3D arcs)
     this.trail.addPoint(this.position.x, this.position.y, this.position.z);
 
-    // Update mesh — predicted bikes use visual smoothing for host corrections
-    if (this.isLocalPredicted && this.visualInitialized) {
-      const blend = 1 - Math.exp(-VISUAL_CORRECTION_RATE * dt);
-      this.visualPos.lerp(this.position, blend);
-      this.visualAngle += wrapAngle(this.angle - this.visualAngle) * blend;
-      this.mesh.position.copy(this.visualPos);
-      this.mesh.rotation.y = this.visualAngle;
-    } else {
-      this.visualPos.copy(this.position);
-      this.visualAngle = this.angle;
-      this.visualInitialized = true;
-      this.mesh.position.copy(this.position);
-      this.mesh.rotation.y = this.angle;
+    // Predicted bikes: decay render offset so visual smoothly converges to physics
+    if (this.isLocalPredicted) {
+      const decay = Math.exp(-VISUAL_CORRECTION_RATE * dt);
+      this.renderOffset.multiplyScalar(decay);
+      this.renderAngleOffset *= decay;
+      if (this.renderOffset.lengthSq() < 0.0001) this.renderOffset.set(0, 0, 0);
+      if (Math.abs(this.renderAngleOffset) < 0.001) this.renderAngleOffset = 0;
     }
+
+    // Compute visual position (physics + render offset for predicted bikes)
+    this.visualPos.copy(this.position).add(this.renderOffset);
+    this.visualAngle = this.angle + this.renderAngleOffset;
+    this.visualInitialized = true;
+    this.mesh.position.copy(this.visualPos);
+    this.mesh.rotation.y = this.visualAngle;
 
     this.updateBodyPitch();
     this.updateDriftLean();
 
-    // Spawn trail particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying);
-    this.driftParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
+    // Spawn trail particles (use visual position to prevent particle pop on snap)
+    this.trailParticles.update(dt, this.visualPos.x, this.visualPos.y, this.visualPos.z, this.visualAngle, this.grounded, this.flying);
+    this.driftParticles.update(dt, this.visualPos.x, this.visualPos.y, this.visualPos.z, this.visualAngle, this.grounded, this.drifting);
   }
 
   grantInvulnerability(): void {
@@ -426,79 +432,6 @@ export class Bike {
 
     // Sync trail from simulation
     this.trail.syncFromSimTrail(simBike.trail.points);
-
-    // Update particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying);
-    this.driftParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
-
-    // Effect visual update
-    if (this.activeEffect) {
-      this.activeEffect.onUpdate(this, dt);
-    }
-  }
-
-  /** Sync visual state from Colyseus server schema (used in online mode) */
-  syncFromServer(schemaBike: { x: number; y: number; z: number; angle: number; vy: number; alive: boolean; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable: boolean; invulnerableTimer: number; doubleJumpCooldown: number; drifting: boolean; velocityAngle: number; pitch: number; flying: boolean; trail: Iterable<{ x: number; y: number; z: number }> & { length: number } }, dt: number): void {
-    // Handle death transition
-    if (!schemaBike.alive && this.alive) {
-      this.alive = false;
-      this.mesh.visible = false;
-      this.expireActiveEffect();
-      this.deathParticles = new DeathParticles(
-        this.color, schemaBike.x, schemaBike.y, schemaBike.z, this.scene,
-      );
-    }
-
-    if (!this.alive) {
-      this.deathParticles?.update(dt);
-      return;
-    }
-
-    // Smooth position toward server state
-    const blend = 1 - Math.exp(-15 * dt);
-    this.position.x += (schemaBike.x - this.position.x) * blend;
-    this.position.y += (schemaBike.y - this.position.y) * blend;
-    this.position.z += (schemaBike.z - this.position.z) * blend;
-
-    this.angle += wrapAngle(schemaBike.angle - this.angle) * blend;
-
-    // Copy non-positional state
-    this.vy = schemaBike.vy;
-    this.grounded = schemaBike.grounded;
-    this.boosting = schemaBike.boosting;
-    this.boostMeter = schemaBike.boostMeter;
-    this.doubleJumpCooldown = schemaBike.doubleJumpCooldown;
-    this.doubleJumpReady = schemaBike.doubleJumpCooldown <= 0;
-    this.flying = schemaBike.flying;
-
-    this.pitch += (schemaBike.pitch - this.pitch) * blend;
-
-    // Drift state
-    this.drifting = schemaBike.drifting;
-    this.velocityAngle += wrapAngle(schemaBike.velocityAngle - this.velocityAngle) * blend;
-    this.deriveVelocityFromAngle();
-
-    // Sync invulnerability visual effect
-    this.syncInvulnerabilityFromNet(schemaBike.invulnerable, schemaBike.invulnerableTimer);
-
-    // Update mesh
-    this.visualPos.copy(this.position);
-    this.visualAngle = this.angle;
-    this.mesh.position.copy(this.position);
-    this.mesh.rotation.y = this.angle;
-
-    this.updateBodyPitch();
-    this.updateDriftLean();
-
-    // Sync trail from schema trail array (only when length changes)
-    const schemaTrailLen = schemaBike.trail.length;
-    if (schemaTrailLen !== this.trail.points.length) {
-      const points: Array<{ x: number; y: number; z: number }> = [];
-      for (const tp of schemaBike.trail) {
-        points.push({ x: tp.x, y: tp.y, z: tp.z });
-      }
-      this.trail.syncFromSimTrail(points);
-    }
 
     // Update particles
     this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying);
@@ -589,27 +522,30 @@ export class Bike {
       return;
     }
 
-    // Client-side predicted bike: reconcile with host state instead of buffering
+    // Client-side predicted bike: snap physics to server, absorb into render offset
     if (this.isLocalPredicted) {
       const dx = state.x - this.position.x;
       const dy = state.y - this.position.y;
       const dz = state.z - this.position.z;
       const error = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      if (error > 10) {
-        // Large disagreement: snap to host
+      if (error > RENDER_OFFSET_SNAP_THRESHOLD) {
+        // Large disagreement: teleport (snap everything, zero offset)
         this.position.set(state.x, state.y, state.z);
         this.angle = state.angle;
+        this.renderOffset.set(0, 0, 0);
+        this.renderAngleOffset = 0;
         this.visualPos.copy(this.position);
         this.visualAngle = this.angle;
-      } else if (error > 0.1) {
-        // Small correction: nudge toward host (visual smoothing handles the rest)
-        const correction = 0.3;
-        this.position.x += dx * correction;
-        this.position.y += dy * correction;
-        this.position.z += dz * correction;
-
-        this.angle += wrapAngle(state.angle - this.angle) * correction;
+      } else if (error > RENDER_OFFSET_MIN_CORRECTION) {
+        // Snap physics to server, absorb correction into render offset
+        // renderOffset -= (serverPos - predictedPos) keeps visual where it was
+        this.renderOffset.x -= dx;
+        this.renderOffset.y -= dy;
+        this.renderOffset.z -= dz;
+        this.renderAngleOffset -= wrapAngle(state.angle - this.angle);
+        this.position.set(state.x, state.y, state.z);
+        this.angle = state.angle;
       }
 
       // Always sync non-positional state from host
@@ -763,17 +699,10 @@ export class Bike {
     }
     // With 0 or 1 state, position/angle are already set from applyNetState
 
-    // Visual smoothing: blend rendered position toward authoritative position
-    if (this.visualInitialized) {
-      const blend = 1 - Math.exp(-VISUAL_CORRECTION_RATE * dt);
-      this.visualPos.lerp(this.position, blend);
-      this.visualAngle += wrapAngle(this.angle - this.visualAngle) * blend;
-    } else {
-      this.visualPos.copy(this.position);
-      this.visualAngle = this.angle;
-      this.visualInitialized = true;
-    }
-
+    // Remote bikes: no render offset, visual tracks interpolated position directly
+    this.visualPos.copy(this.position);
+    this.visualAngle = this.angle;
+    this.visualInitialized = true;
     this.mesh.position.copy(this.visualPos);
     this.mesh.rotation.y = this.visualAngle;
 
@@ -820,6 +749,8 @@ export class Bike {
     this.pitch = 0;
     this.flying = false;
     this.netBuffer = [];
+    this.renderOffset.set(0, 0, 0);
+    this.renderAngleOffset = 0;
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;
     this.visualInitialized = false;

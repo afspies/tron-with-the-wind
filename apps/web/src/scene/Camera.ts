@@ -3,7 +3,7 @@ import { Bike } from '../game/Bike';
 
 const CHASE_DISTANCE = 12;
 const CHASE_HEIGHT = 8;
-const CHASE_LERP = 4;
+const CHASE_LERP = 8;
 const CHASE_LERP_DRIFT = 14;      // faster lerp during drift to keep up with rotation
 const DRIFT_EXTRA_DISTANCE = 5;   // pull camera back during drift
 
