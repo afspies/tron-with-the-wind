@@ -116,12 +116,11 @@ export class TutorialManager {
 
   private currentStep = 0;
   private acc: Accumulators = this.freshAccumulators();
-  private stepCount = TUTORIAL_STEPS.length;
   private visible = false;
-
-  // Grace period: step completed, waiting before advancing
   private completed = false;
   private graceTimer = 0;
+
+  private readonly onSkipClick = (): void => this.skip();
 
   constructor() {
     this.overlay = document.getElementById('tutorial-overlay')!;
@@ -131,11 +130,11 @@ export class TutorialManager {
     this.hintEl = document.getElementById('tutorial-hint')!;
     this.skipBtn = document.getElementById('tutorial-skip')!;
 
-    this.skipBtn.addEventListener('click', () => this.skip());
+    this.skipBtn.addEventListener('click', this.onSkipClick);
 
     // Build progress pips
     this.progressEl.innerHTML = '';
-    for (let i = 0; i < this.stepCount; i++) {
+    for (let i = 0; i < TUTORIAL_STEPS.length; i++) {
       const pip = document.createElement('div');
       pip.className = 'tutorial-pip';
       pip.dataset.index = String(i);
@@ -173,45 +172,49 @@ export class TutorialManager {
     return this.currentStep;
   }
 
+  get isLastStep(): boolean {
+    return this.currentStep >= TUTORIAL_STEPS.length - 1;
+  }
+
   update(simBike: SimBike, input: PlayerInput, dt: number): TutorialEvent {
     if (!this.visible) return 'none';
-    if (!simBike.alive) return 'player-died';
 
-    // If already completed, count down grace timer
+    // Grace period takes priority over death -- let the player see their success
     if (this.completed) {
       this.graceTimer -= dt;
       if (this.graceTimer <= 0) {
-        if (this.currentStep >= this.stepCount - 1) {
-          return 'tutorial-complete';
-        }
-        return 'step-complete';
+        const isLastStep = this.currentStep >= TUTORIAL_STEPS.length - 1;
+        return isLastStep ? 'tutorial-complete' : 'step-complete';
       }
       return 'none';
     }
+
+    if (!simBike.alive) return 'player-died';
 
     const a = this.acc;
     a.elapsed += dt;
 
     // Accumulate input/state
-    if (input.left) { a.turnedLeft = true; a.totalTurnTime += dt; }
-    if (input.right) { a.turnedRight = true; a.totalTurnTime += dt; }
+    if (input.left) {
+      a.turnedLeft = true;
+      a.totalTurnTime += dt;
+    }
+    if (input.right) {
+      a.turnedRight = true;
+      a.totalTurnTime += dt;
+    }
     if (simBike.drifting) a.driftTime += dt;
     if (simBike.boosting) a.boostTime += dt;
     if (simBike.flying) a.flyTime += dt;
 
-    // Jump detection: was airborne, now grounded
+    // Jump detection: was airborne then landed
     if (!simBike.grounded) a.wasAirborne = true;
     if (a.wasAirborne && simBike.grounded) a.hasJumped = true;
-
-    // Double jump
     if (simBike.usedDoubleJumpThisAirborne) a.hasDoubleJumped = true;
-
-    // Power-up
     if (simBike.invulnerable) a.pickedUpPowerUp = true;
 
-    // Check completion
     const step = TUTORIAL_STEPS[this.currentStep];
-    if (step && step.check(a)) {
+    if (step?.check(a)) {
       this.completed = true;
       this.graceTimer = STEP_COMPLETE_GRACE;
       this.showCompletedState();
@@ -220,12 +223,22 @@ export class TutorialManager {
     return 'none';
   }
 
+  onSkip: (() => void) | null = null;
+
   skip(): void {
-    // External code will call startStep or handle completion
+    this.onSkip?.();
   }
 
   dispose(): void {
+    this.skipBtn.removeEventListener('click', this.onSkipClick);
     this.hide();
+  }
+
+  /** Remove then re-add the animation class, forcing a reflow to restart CSS animations. */
+  private restartAnimation(): void {
+    this.overlay.classList.remove('tutorial-step-animate');
+    void this.overlay.offsetWidth;
+    this.overlay.classList.add('tutorial-step-animate');
   }
 
   private freshAccumulators(): Accumulators {
@@ -251,7 +264,7 @@ export class TutorialManager {
     this.overlay.classList.add('step-done');
     this.titleEl.textContent = `${step.title} - Complete!`;
     this.instructionEl.innerHTML = '';
-    this.hintEl.textContent = this.currentStep < this.stepCount - 1
+    this.hintEl.textContent = this.currentStep < TUTORIAL_STEPS.length - 1
       ? 'Next step coming up...'
       : 'Well done!';
     this.skipBtn.style.display = 'none';
@@ -264,10 +277,7 @@ export class TutorialManager {
       pip.classList.add('done');
     }
 
-    // Animate
-    this.overlay.classList.remove('tutorial-step-animate');
-    void this.overlay.offsetWidth;
-    this.overlay.classList.add('tutorial-step-animate');
+    this.restartAnimation();
   }
 
   private updateDOM(): void {
@@ -288,12 +298,6 @@ export class TutorialManager {
       else if (i === this.currentStep) pip.classList.add('active');
     });
 
-    // Animate step transition
-    const content = this.overlay.querySelector('.tutorial-title');
-    if (content) {
-      this.overlay.classList.remove('tutorial-step-animate');
-      void this.overlay.offsetWidth; // force reflow
-      this.overlay.classList.add('tutorial-step-animate');
-    }
+    this.restartAnimation();
   }
 }

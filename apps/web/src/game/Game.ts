@@ -150,6 +150,26 @@ export class Game {
     this.touchControls.hide();
   }
 
+  /** Cancel any pending round-end timeout to prevent stale callbacks. */
+  private clearPendingRoundEnd(): void {
+    if (this.roundEndTimeout !== null) {
+      clearTimeout(this.roundEndTimeout);
+      this.roundEndTimeout = null;
+    }
+  }
+
+  /** Reset all gameplay UI and return to the main menu. */
+  private exitToMenu(): void {
+    this.tutorial.hide();
+    document.getElementById('tutorial-complete-msg')!.style.display = 'none';
+    this.scoreboard.hideAll();
+    this.countdownEl.style.display = 'none';
+    this.hideGameplayUI();
+    this.cleanupBikes();
+    this.state = 'MENU';
+    this.menu.show();
+  }
+
   // --- Colyseus State Handling ---
 
   private handleColyseusStateChange(): void {
@@ -386,12 +406,7 @@ export class Game {
   // --- Game Start (Quickplay) ---
 
   private startGame(config: GameConfig): void {
-    // Clear any pending round-end timeout to prevent stale callbacks
-    if (this.roundEndTimeout !== null) {
-      clearTimeout(this.roundEndTimeout);
-      this.roundEndTimeout = null;
-    }
-
+    this.clearPendingRoundEnd();
     this.config = config;
     this.menu.hide();
     this.scoreboard.hideAll();
@@ -478,11 +493,7 @@ export class Game {
   // --- Tutorial ---
 
   private startTutorial(): void {
-    if (this.roundEndTimeout !== null) {
-      clearTimeout(this.roundEndTimeout);
-      this.roundEndTimeout = null;
-    }
-
+    this.clearPendingRoundEnd();
     this.config = {
       humanCount: 1,
       aiCount: 1,
@@ -495,6 +506,13 @@ export class Game {
     this.scoreboard.hideAll();
     this.cleanupBikes();
 
+    this.tutorial.onSkip = () => {
+      if (this.tutorial.isLastStep) {
+        this.handleTutorialComplete();
+      } else {
+        this.advanceTutorialStep();
+      }
+    };
     this.tutorial.startStep(0);
     this.setupTutorialSimulation();
     this.tutorial.show();
@@ -548,26 +566,36 @@ export class Game {
     this.state = 'PLAYING';
     this.countdownEl.style.display = 'none';
 
-    // Force-spawn power-up if step requires it
-    if (stepConfig.spawnPowerUp && this.simulation) {
+    // Force-spawn power-up 30 units ahead of the player if step requires it.
+    // Must spawn in both the simulation (for pickup detection) and the visual manager.
+    if (stepConfig.spawnPowerUp) {
       const playerBike = this.simulation.bikes[0];
-      // Place power-up 30 units ahead of player
-      const ahead = 30;
-      const px = playerBike.position.x + Math.sin(playerBike.angle) * ahead;
-      const pz = playerBike.position.z + Math.cos(playerBike.angle) * ahead;
-      this.powerUpManager.forceSpawn(px, pz);
+      const px = playerBike.position.x + Math.sin(playerBike.angle) * 30;
+      const pz = playerBike.position.z + Math.cos(playerBike.angle) * 30;
+      // Add to simulation's powerup system so pickup detection works
+      this.simulation.powerUps.powerUps.push({
+        id: 9000,
+        type: 'invulnerability',
+        x: px,
+        z: pz,
+        active: true,
+      });
+      // Create the visual power-up
+      this.powerUpManager.handleNetEvent({
+        type: 'powerup-spawn',
+        powerupId: 9000,
+        powerupX: px,
+        powerupZ: pz,
+        powerupType: 'invulnerability',
+      }, this.bikes);
     }
   }
 
   private updatePlayingTutorial(dt: number): void {
     if (!this.simulation) return;
 
-    // Gather human input
-    const inputs = new Map<number, PlayerInput>();
     const humanInput = this.input.getInput(0);
-    inputs.set(0, humanInput);
-
-    // Tick simulation
+    const inputs = new Map<number, PlayerInput>([[0, humanInput]]);
     const result = this.simulation.tick(dt, inputs);
 
     // Sync visual bikes
@@ -575,7 +603,7 @@ export class Game {
       this.bikes[i].syncFromSim(this.simulation.bikes[i], dt);
     }
 
-    // Handle powerup visual events
+    // Handle power-up visual events
     for (const event of result.powerUpEvents) {
       if (event.type === 'powerup-spawn' || event.type === 'powerup-pickup') {
         this.powerUpManager.handleNetEvent(event, this.bikes);
@@ -583,13 +611,11 @@ export class Game {
     }
 
     this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, false, null, []);
-
     this.hud.update(this.bikes, 1, 999);
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
 
     // Tutorial state machine
-    const simBike = this.simulation.bikes[0];
-    const tutEvent = this.tutorial.update(simBike, humanInput, dt);
+    const tutEvent = this.tutorial.update(this.simulation.bikes[0], humanInput, dt);
 
     switch (tutEvent) {
       case 'player-died':
@@ -606,15 +632,39 @@ export class Game {
 
   private respawnTutorialPlayer(): void {
     if (!this.simulation) return;
-    const simBike = this.simulation.bikes[0];
-    const spawn = { x: -80 + 20, z: -80 + 20, angle: Math.PI * 0.25 };
-    simBike.reset(spawn.x, spawn.z, spawn.angle);
-    this.bikes[0].reset(spawn.x, spawn.z, spawn.angle);
+    // Reset all bikes and trails to prevent AI trail accumulation
+    this.simulation.startRound();
+    for (let i = 0; i < this.bikes.length; i++) {
+      const sim = this.simulation.bikes[i];
+      this.bikes[i].reset(sim.position.x, sim.position.z, sim.angle);
+    }
+    this.powerUpManager.reset();
+
+    // Re-spawn power-up if step requires it
+    const stepConfig = this.tutorial.getCurrentStepConfig();
+    if (stepConfig.spawnPowerUp) {
+      const playerBike = this.simulation.bikes[0];
+      const px = playerBike.position.x + Math.sin(playerBike.angle) * 30;
+      const pz = playerBike.position.z + Math.cos(playerBike.angle) * 30;
+      this.simulation.powerUps.powerUps.push({
+        id: 9000,
+        type: 'invulnerability',
+        x: px,
+        z: pz,
+        active: true,
+      });
+      this.powerUpManager.handleNetEvent({
+        type: 'powerup-spawn',
+        powerupId: 9000,
+        powerupX: px,
+        powerupZ: pz,
+        powerupType: 'invulnerability',
+      }, this.bikes);
+    }
   }
 
   private advanceTutorialStep(): void {
-    const nextStep = this.tutorial.stepIndex + 1;
-    this.tutorial.startStep(nextStep);
+    this.tutorial.startStep(this.tutorial.stepIndex + 1);
     this.setupTutorialSimulation();
     this.tutorial.show();
   }
@@ -641,9 +691,7 @@ export class Game {
 
     document.getElementById('btn-tutorial-menu')!.onclick = () => {
       completeEl.style.display = 'none';
-      this.cleanupBikes();
-      this.state = 'MENU';
-      this.menu.show();
+      this.exitToMenu();
     };
   }
 
@@ -670,20 +718,13 @@ export class Game {
 
     // ESC exits tutorial back to menu
     if (this.config?.mode === 'tutorial' && this.input.isKeyPressed('Escape') && this.state !== 'MENU') {
-      this.tutorial.hide();
-      document.getElementById('tutorial-complete-msg')!.style.display = 'none';
-      this.scoreboard.hideAll();
-      this.countdownEl.style.display = 'none';
-      this.hideGameplayUI();
-      this.cleanupBikes();
-      this.state = 'MENU';
-      this.menu.show();
+      this.exitToMenu();
       return;
     }
 
-    // Quick restart (R key) in quickplay mode — edge-detected
+    // Quick restart (R key) in quickplay mode -- edge-detected
     const rDown = this.input.isKeyPressed('KeyR');
-    const canQuickRestart = this.config && this.config.mode !== 'online' && this.config.mode !== 'tutorial' && this.state !== 'MENU';
+    const canQuickRestart = this.config?.mode === 'quickplay' && this.state !== 'MENU';
     if (canQuickRestart && rDown && !this.rPressed) {
       this.rPressed = rDown;
       this.scoreboard.hideAll();
@@ -820,12 +861,7 @@ export class Game {
           () => {
             this.startGame(this.config);
           },
-          () => {
-            this.scoreboard.hideAll();
-            this.cleanupBikes();
-            this.state = 'MENU';
-            this.menu.show();
-          },
+          () => this.exitToMenu(),
           this.names,
         );
       }, 1500);
