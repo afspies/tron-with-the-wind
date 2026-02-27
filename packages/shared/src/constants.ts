@@ -72,6 +72,12 @@ export const STADIUM_INNER_GAP = 5;
 export const STADIUM_TIER_COUNT = 8;
 export const STADIUM_TIER_HEIGHT = 5;
 export const STADIUM_TIER_DEPTH = 7;
+export const STADIUM_SIDES: Array<{ axis: 'x' | 'z'; sign: 1 | -1 }> = [
+  { axis: 'z', sign: -1 }, // north
+  { axis: 'z', sign: 1 },  // south
+  { axis: 'x', sign: -1 }, // west
+  { axis: 'x', sign: 1 },  // east
+];
 
 // Drift
 export const DRIFT_TURN_MULTIPLIER = 1.8;

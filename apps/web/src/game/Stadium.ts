@@ -6,74 +6,88 @@ import {
   STADIUM_TIER_COUNT,
   STADIUM_TIER_HEIGHT,
   STADIUM_TIER_DEPTH,
+  STADIUM_SIDES,
 } from '@tron/shared';
 
 const SEAT_COLOR = 0x2a1a3a;
+const OUTER_WALL_COLOR = 0x1a0a2e;
+const OUTER_WALL_OVERHANG = 5;
 
 export class Stadium {
+  private seatsMesh: THREE.Mesh | null = null;
+  private wallsMesh: THREE.Mesh | null = null;
+  private seatMat: THREE.MeshLambertMaterial;
+  private wallMat: THREE.MeshLambertMaterial;
+
   constructor(scene: THREE.Scene) {
-    const seatMat = new THREE.MeshLambertMaterial({ color: SEAT_COLOR });
+    this.seatMat = new THREE.MeshLambertMaterial({ color: SEAT_COLOR });
+    this.wallMat = new THREE.MeshLambertMaterial({ color: OUTER_WALL_COLOR });
 
-    // Collect all tier geometries across all 4 sides
-    const allSeatGeos: THREE.BoxGeometry[] = [];
+    this.seatsMesh = this.buildSeats();
+    if (this.seatsMesh) scene.add(this.seatsMesh);
 
-    const sides: Array<{ axis: 'x' | 'z'; sign: 1 | -1 }> = [
-      { axis: 'z', sign: -1 }, // north
-      { axis: 'z', sign: 1 },  // south
-      { axis: 'x', sign: -1 }, // west
-      { axis: 'x', sign: 1 },  // east
-    ];
+    this.wallsMesh = this.buildOuterWalls();
+    if (this.wallsMesh) scene.add(this.wallsMesh);
+  }
 
-    for (const side of sides) {
+  private buildSeats(): THREE.Mesh | null {
+    const allGeos: THREE.BoxGeometry[] = [];
+
+    for (const side of STADIUM_SIDES) {
       for (let t = 0; t < STADIUM_TIER_COUNT; t++) {
         const tierStart = ARENA_HALF + STADIUM_INNER_GAP + t * STADIUM_TIER_DEPTH;
-        const tierOuterEdge = tierStart + STADIUM_TIER_DEPTH;
-        const tierY = t * STADIUM_TIER_HEIGHT;
-        const tierLength = tierOuterEdge * 2; // full span including corners
+        const tierLength = (tierStart + STADIUM_TIER_DEPTH) * 2;
+        const tierY = t * STADIUM_TIER_HEIGHT + STADIUM_TIER_HEIGHT / 2;
+        const tierPos = side.sign * (tierStart + STADIUM_TIER_DEPTH / 2);
 
-        const seatGeo = side.axis === 'z'
-          ? new THREE.BoxGeometry(tierLength, STADIUM_TIER_HEIGHT, STADIUM_TIER_DEPTH)
-          : new THREE.BoxGeometry(STADIUM_TIER_DEPTH, STADIUM_TIER_HEIGHT, tierLength);
+        const isZAxis = side.axis === 'z';
+        const geo = new THREE.BoxGeometry(
+          isZAxis ? tierLength : STADIUM_TIER_DEPTH,
+          STADIUM_TIER_HEIGHT,
+          isZAxis ? STADIUM_TIER_DEPTH : tierLength,
+        );
+        geo.translate(
+          isZAxis ? 0 : tierPos,
+          tierY,
+          isZAxis ? tierPos : 0,
+        );
 
-        if (side.axis === 'z') {
-          seatGeo.translate(0, tierY + STADIUM_TIER_HEIGHT / 2, side.sign * (tierStart + STADIUM_TIER_DEPTH / 2));
-        } else {
-          seatGeo.translate(side.sign * (tierStart + STADIUM_TIER_DEPTH / 2), tierY + STADIUM_TIER_HEIGHT / 2, 0);
-        }
-
-        allSeatGeos.push(seatGeo);
+        allGeos.push(geo);
       }
     }
 
-    const mergedSeats = mergeGeometries(allSeatGeos, false);
-    if (mergedSeats) {
-      scene.add(new THREE.Mesh(mergedSeats, seatMat));
-    }
+    const merged = mergeGeometries(allGeos, false);
+    return merged ? new THREE.Mesh(merged, this.seatMat) : null;
+  }
 
-    // Outer walls — merge all 4 into a single mesh
-    const outerWallHeight = STADIUM_TIER_COUNT * STADIUM_TIER_HEIGHT + 5;
+  private buildOuterWalls(): THREE.Mesh | null {
+    const outerWallHeight = STADIUM_TIER_COUNT * STADIUM_TIER_HEIGHT + OUTER_WALL_OVERHANG;
     const outerDist = ARENA_HALF + STADIUM_INNER_GAP + STADIUM_TIER_COUNT * STADIUM_TIER_DEPTH;
     const outerLength = outerDist * 2;
-    const outerWallMat = new THREE.MeshLambertMaterial({ color: 0x1a0a2e });
 
-    const outerWallConfigs = [
+    const wallConfigs = [
       { x: 0, z: -outerDist, rotY: 0 },
       { x: 0, z: outerDist, rotY: 0 },
       { x: -outerDist, z: 0, rotY: Math.PI / 2 },
       { x: outerDist, z: 0, rotY: Math.PI / 2 },
     ];
 
-    const allWallGeos: THREE.BufferGeometry[] = [];
-    for (const cfg of outerWallConfigs) {
-      const wallGeo = new THREE.PlaneGeometry(outerLength, outerWallHeight);
-      wallGeo.rotateY(cfg.rotY);
-      wallGeo.translate(cfg.x, outerWallHeight / 2, cfg.z);
-      allWallGeos.push(wallGeo);
+    const allGeos: THREE.BufferGeometry[] = [];
+    for (const cfg of wallConfigs) {
+      const geo = new THREE.PlaneGeometry(outerLength, outerWallHeight);
+      geo.rotateY(cfg.rotY);
+      geo.translate(cfg.x, outerWallHeight / 2, cfg.z);
+      allGeos.push(geo);
     }
 
-    const mergedWalls = mergeGeometries(allWallGeos, false);
-    if (mergedWalls) {
-      scene.add(new THREE.Mesh(mergedWalls, outerWallMat));
-    }
+    const merged = mergeGeometries(allGeos, false);
+    return merged ? new THREE.Mesh(merged, this.wallMat) : null;
+  }
+
+  dispose(): void {
+    this.seatsMesh?.geometry.dispose();
+    this.wallsMesh?.geometry.dispose();
+    this.seatMat.dispose();
+    this.wallMat.dispose();
   }
 }
