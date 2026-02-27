@@ -40,8 +40,10 @@ export class Stadium {
         const tierStart = ARENA_HALF + STADIUM_INNER_GAP + t * STADIUM_TIER_DEPTH;
         const tierY = t * STADIUM_TIER_HEIGHT;
 
-        // Tier surface (seat)
-        const seatGeo = new THREE.BoxGeometry(ARENA_SIZE, STADIUM_TIER_HEIGHT, STADIUM_TIER_DEPTH);
+        // Tier surface (seat) — swap width/depth for x-axis sides
+        const seatGeo = side.axis === 'z'
+          ? new THREE.BoxGeometry(ARENA_SIZE, STADIUM_TIER_HEIGHT, STADIUM_TIER_DEPTH)
+          : new THREE.BoxGeometry(STADIUM_TIER_DEPTH, STADIUM_TIER_HEIGHT, ARENA_SIZE);
 
         if (side.axis === 'z') {
           seatGeo.translate(
@@ -50,7 +52,6 @@ export class Stadium {
             side.sign * (tierStart + STADIUM_TIER_DEPTH / 2),
           );
         } else {
-          // Rotate for x-axis sides
           seatGeo.translate(
             side.sign * (tierStart + STADIUM_TIER_DEPTH / 2),
             tierY + STADIUM_TIER_HEIGHT / 2,
