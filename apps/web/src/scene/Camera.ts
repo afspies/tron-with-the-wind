@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SurfaceType, getSurfaceNormal } from '@tron/shared';
+import { SurfaceType } from '@tron/shared';
 import { Bike } from '../game/Bike';
 
 const CHASE_DISTANCE = 12;
@@ -139,20 +139,21 @@ export class GameCamera {
 
     const pos = target.renderPosition;
     const ang = target.renderAngle;
-    const isOnWall = target.surfaceType !== SurfaceType.Floor && target.surfaceType !== SurfaceType.Air;
+    const sn = target.surfaceNormal;
+    const isOnSurface = target.surfaceType !== SurfaceType.Air && target.grounded;
+    const isNonFlat = isOnSurface && sn.y < 0.99;
 
-    // Lerp camera up toward surface normal
-    const targetNormal = getSurfaceNormal(target.surfaceType);
-    const targetUp = new THREE.Vector3(targetNormal.x, targetNormal.y, targetNormal.z);
-    // For air, use world up
-    if (target.surfaceType === SurfaceType.Air) targetUp.set(0, 1, 0);
+    // Lerp camera up toward surface normal (use world up for air)
+    const targetUp = isOnSurface
+      ? new THREE.Vector3(sn.x, sn.y, sn.z)
+      : new THREE.Vector3(0, 1, 0);
     this.cameraUp.lerp(targetUp, 1 - Math.exp(-5 * dt));
     this.cameraUp.normalize();
 
-    if (isOnWall) {
-      // Wall chase camera: position behind bike along -forward, offset along surface normal
+    if (isNonFlat) {
+      // Non-flat surface: position behind bike along -forward, offset along surface normal
       const fwd = new THREE.Vector3(target.forward.x, target.forward.y, target.forward.z).normalize();
-      const normal = new THREE.Vector3(targetNormal.x, targetNormal.y, targetNormal.z);
+      const normal = new THREE.Vector3(sn.x, sn.y, sn.z);
 
       const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend;
       // Camera behind bike (-forward * distance) + offset along normal (inward)

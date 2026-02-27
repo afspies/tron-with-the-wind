@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { TRAIL_HEIGHT, TRAIL_SAMPLE_DISTANCE, TRAIL_RAMP_SEGMENTS, ARENA_HALF } from '@tron/shared';
+import { TRAIL_HEIGHT, TRAIL_SAMPLE_DISTANCE, TRAIL_RAMP_SEGMENTS } from '@tron/shared';
 import type { TrailPoint } from '@tron/shared';
+import { getArenaSurfaceInfo } from '@tron/game-core';
 
 export class Trail {
   points: TrailPoint[] = [];
@@ -97,59 +98,32 @@ export class Trail {
       const h1 = distFromEnd1 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd1 / TRAIL_RAMP_SEGMENTS);
       const h2 = distFromEnd2 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd2 / TRAIL_RAMP_SEGMENTS);
 
-      // Determine if this segment is on a wall (infer from position at wall boundary)
-      const wallMargin = 1.5;
-      const isOnXWall = Math.abs(p1.x) >= ARENA_HALF - wallMargin && Math.abs(p2.x) >= ARENA_HALF - wallMargin && p1.y > 0.5;
-      const isOnZWall = Math.abs(p1.z) >= ARENA_HALF - wallMargin && Math.abs(p2.z) >= ARENA_HALF - wallMargin && p1.y > 0.5;
+      // Use surface normal at each point to determine extrusion direction
+      // This works correctly on floor, walls, and ramps
+      const surf1 = getArenaSurfaceInfo(p1 as { x: number; y: number; z: number });
+      const n1 = surf1.normal;
 
-      let verts: number[];
-      let nx: number, ny: number, nz: number;
+      // Extrude along surface normal (up on floor, inward on wall, angled on ramp)
+      const verts = [
+        p1.x, p1.y, p1.z,
+        p1.x + n1.x * h1, p1.y + n1.y * h1, p1.z + n1.z * h1,
+        p2.x + n1.x * h2, p2.y + n1.y * h2, p2.z + n1.z * h2,
+        p1.x, p1.y, p1.z,
+        p2.x + n1.x * h2, p2.y + n1.y * h2, p2.z + n1.z * h2,
+        p2.x, p2.y, p2.z,
+      ];
 
-      if (isOnXWall) {
-        // Trail on X wall: extrude inward along X (toward center)
-        const sign = p1.x > 0 ? -1 : 1; // inward direction
-        nx = sign;
-        ny = 0;
-        nz = 0;
-        verts = [
-          p1.x, p1.y, p1.z,
-          p1.x + sign * h1, p1.y, p1.z,
-          p2.x + sign * h2, p2.y, p2.z,
-          p1.x, p1.y, p1.z,
-          p2.x + sign * h2, p2.y, p2.z,
-          p2.x, p2.y, p2.z,
-        ];
-      } else if (isOnZWall) {
-        // Trail on Z wall: extrude inward along Z
-        const sign = p1.z > 0 ? -1 : 1;
-        nx = 0;
-        ny = 0;
-        nz = sign;
-        verts = [
-          p1.x, p1.y, p1.z,
-          p1.x, p1.y, p1.z + sign * h1,
-          p2.x, p2.y, p2.z + sign * h2,
-          p1.x, p1.y, p1.z,
-          p2.x, p2.y, p2.z + sign * h2,
-          p2.x, p2.y, p2.z,
-        ];
-      } else {
-        // Floor / air trail: extrude upward (original behavior)
-        const dx = p2.x - p1.x;
-        const dz = p2.z - p1.z;
-        const len = Math.sqrt(dx * dx + dz * dz);
-        nx = -dz / (len || 1);
-        ny = 0;
-        nz = dx / (len || 1);
-        verts = [
-          p1.x, p1.y, p1.z,
-          p1.x, p1.y + h1, p1.z,
-          p2.x, p2.y + h2, p2.z,
-          p1.x, p1.y, p1.z,
-          p2.x, p2.y + h2, p2.z,
-          p2.x, p2.y, p2.z,
-        ];
-      }
+      // Face normal: perpendicular to both the segment direction and the extrusion direction
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const dz = p2.z - p1.z;
+      // cross(segment_dir, surface_normal) gives face normal
+      let nx = dy * n1.z - dz * n1.y;
+      let ny = dz * n1.x - dx * n1.z;
+      let nz = dx * n1.y - dy * n1.x;
+      const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (nLen > 0.001) { nx /= nLen; ny /= nLen; nz /= nLen; }
+      else { nx = 0; ny = 0; nz = 1; }
 
       for (let j = 0; j < 18; j++) {
         posArr[baseIdx + j] = verts[j];

@@ -1,12 +1,16 @@
 import * as THREE from 'three';
-import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT, CEILING_HEIGHT } from '@tron/shared';
+import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT, CEILING_HEIGHT, RAMP_RADIUS } from '@tron/shared';
 
 export class Arena {
   ground: THREE.Mesh;
   walls: THREE.Mesh[] = [];
 
   constructor(scene: THREE.Scene) {
-    // Ground plane with grid pattern
+    const R = RAMP_RADIUS;
+    const flatFloorSize = ARENA_SIZE - R * 2; // floor shrinks by ramp radius on each side
+    const flatWallHeight = WALL_HEIGHT - R * 2; // flat wall between floor-ramp and ceiling-ramp
+
+    // Ground plane (shrunk to flat floor area, ramp covers the rest)
     const groundGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE, 40, 40);
     const groundMat = new THREE.MeshStandardMaterial({
       color: 0x2a1a3a,
@@ -24,7 +28,7 @@ export class Arena {
     (gridHelper.material as THREE.Material).opacity = 0.3;
     scene.add(gridHelper);
 
-    // Boundary walls
+    // Shared wall material
     const wallMat = new THREE.MeshStandardMaterial({
       color: 0x4a2a6a,
       emissive: 0x2a1a4a,
@@ -34,6 +38,17 @@ export class Arena {
       side: THREE.DoubleSide,
     });
 
+    // Ramp material (slightly different tint)
+    const rampMat = new THREE.MeshStandardMaterial({
+      color: 0x3a2050,
+      emissive: 0x2a1a4a,
+      emissiveIntensity: 0.4,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+    });
+
+    // Flat wall sections (between floor-ramp top and ceiling-ramp bottom)
     const wallConfigs = [
       { x: 0, z: -ARENA_HALF, rotY: 0 },
       { x: 0, z: ARENA_HALF, rotY: 0 },
@@ -42,33 +57,21 @@ export class Arena {
     ];
 
     for (const cfg of wallConfigs) {
-      const wallGeo = new THREE.PlaneGeometry(ARENA_SIZE, WALL_HEIGHT);
+      const wallGeo = new THREE.PlaneGeometry(ARENA_SIZE, flatWallHeight);
       const wall = new THREE.Mesh(wallGeo, wallMat.clone());
-      wall.position.set(cfg.x, WALL_HEIGHT / 2, cfg.z);
+      wall.position.set(cfg.x, R + flatWallHeight / 2, cfg.z);
       wall.rotation.y = cfg.rotY;
       scene.add(wall);
       this.walls.push(wall);
-
-      // Glowing edge at top of wall
-      const edgeGeo = new THREE.BoxGeometry(ARENA_SIZE, 0.15, 0.15);
-      const edgeMat = new THREE.MeshStandardMaterial({
-        color: 0x9966CC,
-        emissive: 0x9966CC,
-        emissiveIntensity: 1.5,
-      });
-      const edge = new THREE.Mesh(edgeGeo, edgeMat);
-      edge.position.set(cfg.x, WALL_HEIGHT, cfg.z);
-      edge.rotation.y = cfg.rotY;
-      scene.add(edge);
-
-      // Glowing edge at bottom of wall
-      const bottomEdge = new THREE.Mesh(edgeGeo.clone(), edgeMat.clone());
-      bottomEdge.position.set(cfg.x, 0.075, cfg.z);
-      bottomEdge.rotation.y = cfg.rotY;
-      scene.add(bottomEdge);
     }
 
-    // Corner pillars
+    // Floor-wall ramps (4 quarter-cylinder curves at floor-wall junctions)
+    // Each ramp runs along the full arena length of the respective wall
+    const rampSegs = 12; // arc segments for smooth quarter-circle
+    this.buildFloorWallRamps(scene, rampMat, R, rampSegs);
+    this.buildCeilingWallRamps(scene, rampMat, R, rampSegs);
+
+    // Corner pillars (now extend full height)
     const pillarGeo = new THREE.CylinderGeometry(0.5, 0.5, WALL_HEIGHT + 1, 8);
     const pillarMat = new THREE.MeshStandardMaterial({
       color: 0x6a3a8a,
@@ -86,7 +89,6 @@ export class Arena {
       pillar.position.set(cx, (WALL_HEIGHT + 1) / 2, cz);
       scene.add(pillar);
 
-      // Orb on top
       const orbGeo = new THREE.SphereGeometry(0.8, 16, 16);
       const orbMat = new THREE.MeshStandardMaterial({
         color: 0xffd700,
@@ -130,17 +132,133 @@ export class Arena {
       (wallGrid.material as THREE.Material).transparent = true;
       (wallGrid.material as THREE.Material).opacity = 0.15;
 
-      // Rotate grid to align with wall plane
       if (cfg.rotY === 0) {
-        // Z-axis wall: rotate to face along Z
         wallGrid.rotation.x = Math.PI / 2;
         wallGrid.position.set(cfg.x, WALL_HEIGHT / 2, cfg.z);
       } else {
-        // X-axis wall: rotate to face along X
         wallGrid.rotation.z = Math.PI / 2;
         wallGrid.position.set(cfg.x, WALL_HEIGHT / 2, cfg.z);
       }
       scene.add(wallGrid);
     }
+  }
+
+  /**
+   * Build quarter-cylinder ramp meshes at all 4 floor-wall junctions.
+   * Each ramp is an extruded quarter-circle arc from floor (y=0) up to the wall (y=R).
+   */
+  private buildFloorWallRamps(scene: THREE.Scene, mat: THREE.Material, R: number, segs: number): void {
+    // wallDef: wallPos on the axis, sign (+1/-1), axis ('x' or 'z')
+    const wallDefs: Array<{ wallPos: number; sign: number; axis: 'x' | 'z' }> = [
+      { wallPos: ARENA_HALF, sign: 1, axis: 'x' },
+      { wallPos: -ARENA_HALF, sign: -1, axis: 'x' },
+      { wallPos: ARENA_HALF, sign: 1, axis: 'z' },
+      { wallPos: -ARENA_HALF, sign: -1, axis: 'z' },
+    ];
+
+    for (const wd of wallDefs) {
+      const geo = this.createRampGeometry(R, segs, ARENA_SIZE, wd.axis, wd.sign, 'floor');
+      const mesh = new THREE.Mesh(geo, mat.clone());
+      scene.add(mesh);
+    }
+  }
+
+  /**
+   * Build quarter-cylinder ramp meshes at all 4 wall-ceiling junctions.
+   */
+  private buildCeilingWallRamps(scene: THREE.Scene, mat: THREE.Material, R: number, segs: number): void {
+    const wallDefs: Array<{ wallPos: number; sign: number; axis: 'x' | 'z' }> = [
+      { wallPos: ARENA_HALF, sign: 1, axis: 'x' },
+      { wallPos: -ARENA_HALF, sign: -1, axis: 'x' },
+      { wallPos: ARENA_HALF, sign: 1, axis: 'z' },
+      { wallPos: -ARENA_HALF, sign: -1, axis: 'z' },
+    ];
+
+    for (const wd of wallDefs) {
+      const geo = this.createRampGeometry(R, segs, ARENA_SIZE, wd.axis, wd.sign, 'ceiling');
+      const mesh = new THREE.Mesh(geo, mat.clone());
+      scene.add(mesh);
+    }
+  }
+
+  /**
+   * Create geometry for a quarter-cylinder ramp running along one wall edge.
+   * The ramp is a strip of quads tracing a quarter-circle arc, extruded along the wall length.
+   *
+   * For floor ramps: arc center is at (wallPos - sign*R, R), arc goes from
+   *   wall face (angle=0, vertical tangent) to floor (angle=PI/2, horizontal tangent).
+   * For ceiling ramps: arc center is at (wallPos - sign*R, CEILING_HEIGHT - R).
+   */
+  private createRampGeometry(
+    R: number, segs: number, length: number,
+    axis: 'x' | 'z', sign: number, edge: 'floor' | 'ceiling',
+  ): THREE.BufferGeometry {
+    // Arc center in the wall-axis/Y plane
+    const wallPos = sign * ARENA_HALF;
+    const centerW = wallPos - sign * R;
+    const centerY = edge === 'floor' ? R : CEILING_HEIGHT - R;
+
+    // Arc angle: 0 = at the wall face, PI/2 = at the floor/ceiling
+    // For floor: angle 0 -> point at (wallPos, R) going to (centerW, 0)
+    // For ceiling: angle 0 -> point at (wallPos, CH-R) going to (centerW, CH)
+    const verts: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
+
+    const strips = segs;
+    const lengthSegs = 1; // single segment along wall length
+
+    for (let li = 0; li <= lengthSegs; li++) {
+      const along = -length / 2 + (length * li) / lengthSegs;
+
+      for (let ai = 0; ai <= strips; ai++) {
+        const t = ai / strips;
+        const angle = t * (Math.PI / 2);
+
+        // Point on the arc (in the wallAxis/Y plane)
+        let w: number, y: number;
+        let nw: number, ny: number;
+
+        if (edge === 'floor') {
+          // Arc from wall face down to floor
+          w = centerW + Math.sin(angle) * sign * R; // sign ensures correct direction
+          y = centerY - Math.cos(angle) * R;
+          nw = -Math.sin(angle) * sign; // normal points inward
+          ny = Math.cos(angle);
+        } else {
+          // Arc from wall face up to ceiling
+          w = centerW + Math.sin(angle) * sign * R;
+          y = centerY + Math.cos(angle) * R;
+          nw = -Math.sin(angle) * sign;
+          ny = -Math.cos(angle);
+        }
+
+        if (axis === 'x') {
+          verts.push(w, y, along);
+          normals.push(nw, ny, 0);
+        } else {
+          verts.push(along, y, w);
+          normals.push(0, ny, nw);
+        }
+      }
+    }
+
+    // Build triangle indices
+    const vertsPerRow = strips + 1;
+    for (let li = 0; li < lengthSegs; li++) {
+      for (let ai = 0; ai < strips; ai++) {
+        const a = li * vertsPerRow + ai;
+        const b = a + 1;
+        const c = a + vertsPerRow;
+        const d = c + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setIndex(indices);
+    return geo;
   }
 }

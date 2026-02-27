@@ -2,10 +2,15 @@ export { SimBike } from './SimBike';
 export {
   rotateVectorAroundAxis,
   projectOntoSurfacePlane,
-  remapForwardToWall,
-  remapForwardToFloor,
-  getWallSurfaceFromPosition,
 } from './Surface';
+export {
+  getArenaSurfaceInfo,
+  getGravityTangent,
+  deriveSurfaceType,
+  isInsideArena,
+  isNearSurface,
+  type SurfaceInfo,
+} from './ArenaSurface';
 export { SimTrail } from './SimTrail';
 export {
   lineSegmentsIntersect,

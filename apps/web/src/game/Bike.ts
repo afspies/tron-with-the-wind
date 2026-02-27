@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  SurfaceType, getSurfaceNormal,
+  SurfaceType,
   BIKE_SPEED, TURN_RATE,
   JUMP_INITIAL_VY, GRAVITY, JUMP_COOLDOWN,
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
@@ -14,6 +14,7 @@ import {
 } from '@tron/shared';
 import type { Vec2, Vec3, PlayerInput } from '@tron/shared';
 import type { SimBike } from '@tron/game-core';
+import { getArenaSurfaceInfo } from '@tron/game-core';
 import { Trail } from './Trail';
 import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision } from './Collision';
 import type { PowerUpEffect } from './powerups/PowerUpEffect';
@@ -77,6 +78,7 @@ export class Bike {
 
   // Wall driving
   surfaceType: SurfaceType = SurfaceType.Floor;
+  surfaceNormal: Vec3 = { x: 0, y: 1, z: 0 };
   forward: Vec3 = { x: 0, y: 0, z: 1 };
   private targetQuaternion = new THREE.Quaternion();
   private currentQuaternion = new THREE.Quaternion();
@@ -367,7 +369,7 @@ export class Bike {
     this.updateDriftLean();
 
     // Spawn trail particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, getSurfaceNormal(this.surfaceType));
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, this.surfaceNormal);
     this.driftParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
   }
 
@@ -434,7 +436,7 @@ export class Bike {
     this.trail.syncFromSimTrail(simBike.trail.points);
 
     // Update particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, getSurfaceNormal(this.surfaceType));
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, this.surfaceNormal);
     this.driftParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
 
     // Effect visual update
@@ -509,7 +511,7 @@ export class Bike {
     }
 
     // Update particles
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, getSurfaceNormal(this.surfaceType));
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, this.surfaceNormal);
     this.driftParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
 
     // Effect visual update
@@ -554,27 +556,33 @@ export class Bike {
     }
   }
 
-  /** Compute mesh orientation from surface state. On floor, uses angle. On wall, builds rotation from forward+normal. */
+  /** Compute mesh orientation from surface state using continuous surface normal. */
   private updateMeshOrientation(dt: number): void {
-    if (this.surfaceType !== SurfaceType.Floor && this.surfaceType !== SurfaceType.Air) {
-      // Wall: build rotation from forward + surfaceNormal
-      const normal = getSurfaceNormal(this.surfaceType);
+    // Compute continuous normal from position (smooth through ramps)
+    const surfInfo = getArenaSurfaceInfo({
+      x: this.position.x, y: this.position.y, z: this.position.z,
+    });
+    this.surfaceNormal = surfInfo.normal;
+
+    const isOnSurface = this.surfaceType !== SurfaceType.Air && this.grounded;
+
+    if (isOnSurface && this.surfaceNormal.y < 0.99) {
+      // Non-flat surface: build rotation from forward + surfaceNormal
       const fwd = new THREE.Vector3(this.forward.x, this.forward.y, this.forward.z).normalize();
-      const up = new THREE.Vector3(normal.x, normal.y, normal.z);
+      const up = new THREE.Vector3(this.surfaceNormal.x, this.surfaceNormal.y, this.surfaceNormal.z);
       const right = new THREE.Vector3().crossVectors(fwd, up).normalize();
       // Recompute forward to ensure orthogonality
       fwd.crossVectors(up, right).normalize();
 
       const mat = new THREE.Matrix4().makeBasis(right, up, fwd.negate());
       this.targetQuaternion.setFromRotationMatrix(mat);
-      this.currentQuaternion.slerp(this.targetQuaternion, 1 - Math.exp(-10 * dt));
-      this.mesh.quaternion.copy(this.currentQuaternion);
     } else {
       // Floor/Air: use euler rotation (angle around Y)
       this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.visualAngle, 0));
-      this.currentQuaternion.slerp(this.targetQuaternion, 1 - Math.exp(-10 * dt));
-      this.mesh.quaternion.copy(this.currentQuaternion);
     }
+
+    this.currentQuaternion.slerp(this.targetQuaternion, 1 - Math.exp(-10 * dt));
+    this.mesh.quaternion.copy(this.currentQuaternion);
   }
 
   /** Apply body lean based on the angle between heading and velocity. */
@@ -820,7 +828,7 @@ export class Bike {
       this.activeEffect.onUpdate(this, dt);
     }
 
-    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, getSurfaceNormal(this.surfaceType));
+    this.trailParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.flying, this.forward, this.surfaceNormal);
     this.driftParticles.update(dt, this.position.x, this.position.y, this.position.z, this.angle, this.grounded, this.drifting);
   }
 
@@ -855,6 +863,7 @@ export class Bike {
     this.pitch = 0;
     this.flying = false;
     this.surfaceType = SurfaceType.Floor;
+    this.surfaceNormal = { x: 0, y: 1, z: 0 };
     this.forward = { x: Math.sin(angle), y: 0, z: Math.cos(angle) };
     this.targetQuaternion.setFromEuler(new THREE.Euler(0, angle, 0));
     this.currentQuaternion.copy(this.targetQuaternion);
