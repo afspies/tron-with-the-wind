@@ -143,11 +143,11 @@
     #join-input {
       font-family: 'Cinzel', serif;
       font-size: 1.2rem;
-      width: 140px;
+      width: 200px;
       padding: 10px 16px;
       text-align: center;
       text-transform: uppercase;
-      letter-spacing: 0.3em;
+      letter-spacing: 0.15em;
       background: rgba(26,10,46,0.8);
       color: #ffd700;
       border: 2px solid rgba(153,102,204,0.5);
@@ -173,7 +173,7 @@
       font-size: 3rem;
       font-weight: 900;
       color: #ffd700;
-      letter-spacing: 0.3em;
+      letter-spacing: 0.15em;
       text-shadow: 0 0 30px rgba(255,215,0,0.5);
       margin-bottom: 0.3rem;
     }
@@ -182,7 +182,38 @@
       color: #9966CC;
       text-transform: uppercase;
       letter-spacing: 0.15em;
+      margin-bottom: 0.8rem;
+    }
+    .lobby-share-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
       margin-bottom: 1.5rem;
+    }
+    .share-btn {
+      font-family: 'Cinzel', serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      padding: 8px 20px;
+      color: #ffd700;
+      background: rgba(255,215,0,0.1);
+      border: 1px solid rgba(255,215,0,0.4);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+      letter-spacing: 0.05em;
+    }
+    .share-btn:hover {
+      background: rgba(255,215,0,0.2);
+      border-color: #ffd700;
+      box-shadow: 0 0 12px rgba(255,215,0,0.3);
+    }
+    .share-status {
+      font-size: 0.8rem;
+      color: #50C878;
+      min-height: 1em;
+      transition: opacity 0.3s;
     }
     #lobby-player-list {
       display: flex;
@@ -946,7 +977,7 @@
       <div id="online-panel">
         <button class="menu-btn" id="btn-create-room">Create Room</button>
         <div class="join-row">
-          <input id="join-input" type="text" maxlength="4" placeholder="CODE" autocomplete="off" />
+          <input id="join-input" type="text" maxlength="8" placeholder="FALCON" autocomplete="off" />
           <button class="menu-btn" id="btn-join-room" style="width:auto; padding:10px 24px;">Join</button>
         </div>
       </div>
@@ -966,6 +997,10 @@
     <div id="lobby">
       <div id="lobby-code"></div>
       <div class="lobby-label">Room Code</div>
+      <div class="lobby-share-row">
+        <button id="btn-share-room" class="share-btn">Share Link</button>
+        <span id="share-status" class="share-status"></span>
+      </div>
       <div id="lobby-player-list"></div>
       <div id="lobby-host-controls">
         <label>AI Opponents</label>

@@ -2,6 +2,7 @@ import { Client, Room } from 'colyseus.js';
 import { ClientMsg, ServerMsg } from '@tron/shared';
 import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import type { ChatMessage } from '../ui/Chat';
+import { getRandomWord } from '../data/words';
 
 function getServerUrl(): string {
   // Allow explicit override via build-time env variable
@@ -21,15 +22,6 @@ function getServerUrl(): string {
   // pr-42.tron.afspies.com → pr-42.tron-server.afspies.com
   const serverHost = hostname.replace('tron.', 'tron-server.');
   return `${wsProtocol}://${serverHost}`;
-}
-
-function generateCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  let code = '';
-  for (let i = 0; i < 4; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return code;
 }
 
 export interface LobbyPlayer {
@@ -64,7 +56,7 @@ export class ColyseusClient {
   }
 
   async createRoom(options?: { aiCount?: number; aiDifficulty?: AIDifficulty; roundsToWin?: number; name?: string }): Promise<string> {
-    this.roomCode = generateCode();
+    this.roomCode = getRandomWord();
     this.room = await this.client.create('tron', {
       roomCode: this.roomCode,
       ...options,
