@@ -6,6 +6,9 @@ import {
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
   DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_TRACTION, NORMAL_TRACTION,
+  FLIGHT_PITCH_RATE, FLIGHT_PITCH_RETURN_RATE, FLIGHT_MAX_PITCH,
+  FLIGHT_THRUST, FLIGHT_AIR_TURN_MULT, FLIGHT_BOOST_DRAIN_MULT,
+  FLIGHT_LANDING_MAX_PITCH,
 } from '@tron/shared';
 import { SimTrail } from './SimTrail';
 import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision, type TrailHitInfo } from './Collision';
@@ -25,6 +28,9 @@ export class SimBike {
   playerIndex: number;
   color: string;
   trail: SimTrail;
+
+  pitch = 0;
+  flying = false;
 
   activeEffect: SimPowerUpEffect | null = null;
   effectTimer = 0;
@@ -71,15 +77,20 @@ export class SimBike {
     }
     if (this.drifting) this.driftTimer += dt;
 
-    // Steering (faster turn rate while drifting)
-    const turnRate = this.drifting ? TURN_RATE * DRIFT_TURN_MULTIPLIER : TURN_RATE;
+    // Steering (faster turn rate while drifting, slower while flying)
+    const turnRate = this.drifting ? TURN_RATE * DRIFT_TURN_MULTIPLIER
+      : this.flying ? TURN_RATE * FLIGHT_AIR_TURN_MULT
+      : TURN_RATE;
     if (input.left) this.angle += turnRate * dt;
     if (input.right) this.angle -= turnRate * dt;
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
+    this.flying = !this.grounded && this.boosting;
+
     if (this.boosting) {
-      this.boostMeter = Math.max(0, this.boostMeter - BOOST_DRAIN * dt);
+      const drain = this.flying ? BOOST_DRAIN * FLIGHT_BOOST_DRAIN_MULT : BOOST_DRAIN;
+      this.boostMeter = Math.max(0, this.boostMeter - drain * dt);
       this.boostRechargeTimer = BOOST_RECHARGE_DELAY;
     } else {
       if (this.boostRechargeTimer > 0) {
@@ -92,6 +103,17 @@ export class SimBike {
     }
     const driftMul = this.drifting ? DRIFT_SPEED_MULTIPLIER : 1.0;
     const currentSpeed = this.speed * (this.boosting ? BOOST_MULTIPLIER : 1.0) * driftMul;
+
+    // Pitch update — player-controlled via W/S whenever airborne
+    if (!this.grounded) {
+      if (input.pitchUp) {
+        this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
+      } else if (input.pitchDown) {
+        this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RATE * dt);
+      }
+    } else {
+      this.pitch = 0;
+    }
 
     // Velocity vector traction blend
     const desiredVx = Math.sin(this.angle) * currentSpeed;
@@ -114,8 +136,22 @@ export class SimBike {
     const oldPos: Vec2 = { x: this.position.x, z: this.position.z };
 
     // Move
-    this.position.x += this.vx * dt;
-    this.position.z += this.vz * dt;
+    if (this.flying) {
+      // Flight overrides traction: use heading direction with pitch-based speed
+      const horizSpeed = BIKE_SPEED * BOOST_MULTIPLIER * Math.cos(this.pitch);
+      this.position.x += Math.sin(this.angle) * horizSpeed * dt;
+      this.position.z += Math.cos(this.angle) * horizSpeed * dt;
+      this.vy += FLIGHT_THRUST * Math.sin(this.pitch) * dt;
+    } else if (!this.grounded && this.pitch > 0) {
+      // Airborne coasting with residual pitch (no vertical thrust)
+      const horizSpeed = BIKE_SPEED * Math.cos(this.pitch);
+      this.position.x += Math.sin(this.angle) * horizSpeed * dt;
+      this.position.z += Math.cos(this.angle) * horizSpeed * dt;
+    } else {
+      // Ground / normal air: use velocity traction model
+      this.position.x += this.vx * dt;
+      this.position.z += this.vz * dt;
+    }
 
     // Jump
     this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
@@ -125,7 +161,7 @@ export class SimBike {
         this.grounded = false;
         this.jumpCooldown = JUMP_COOLDOWN;
         this.usedDoubleJumpThisAirborne = false;
-      } else if (this.doubleJumpReady && !this.usedDoubleJumpThisAirborne) {
+      } else if (this.doubleJumpReady) {
         this.vy = JUMP_INITIAL_VY;
         this.usedDoubleJumpThisAirborne = true;
         this.doubleJumpReady = false;
@@ -138,9 +174,15 @@ export class SimBike {
       this.position.y += this.vy * dt;
       this.vy -= GRAVITY * dt;
       if (this.position.y <= 0) {
+        if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
+          this.die();
+          return;
+        }
         this.position.y = 0;
         this.vy = 0;
         this.grounded = true;
+        this.pitch = 0;
+        this.flying = false;
         this.jumpCooldown = JUMP_COOLDOWN;
       }
     }
@@ -231,6 +273,8 @@ export class SimBike {
     this.drifting = false;
     this.driftTimer = 0;
     this.initVelocity(angle);
+    this.pitch = 0;
+    this.flying = false;
     this.trail.reset();
   }
 }

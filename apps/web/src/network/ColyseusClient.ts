@@ -3,11 +3,24 @@ import { ClientMsg, ServerMsg } from '@tron/shared';
 import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import type { ChatMessage } from '../ui/Chat';
 
-const DEFAULT_SERVER_URL = 'ws://localhost:2567';
-
 function getServerUrl(): string {
-  // Allow override via env variable at build time
-  return (import.meta as any).env?.VITE_COLYSEUS_URL || DEFAULT_SERVER_URL;
+  // Allow explicit override via build-time env variable
+  const envUrl = (import.meta as any).env?.VITE_COLYSEUS_URL;
+  if (envUrl) return envUrl;
+
+  // Derive server URL from current page hostname
+  const { hostname, protocol } = window.location;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'ws://localhost:2567';
+  }
+
+  const wsProtocol = protocol === 'https:' ? 'wss' : 'ws';
+
+  // tron.afspies.com → tron-server.afspies.com
+  // tron-staging.afspies.com → tron-staging-server.afspies.com
+  // pr-42.tron.afspies.com → pr-42.tron-server.afspies.com
+  const serverHost = hostname.replace('tron.', 'tron-server.');
+  return `${wsProtocol}://${serverHost}`;
 }
 
 function generateCode(): string {

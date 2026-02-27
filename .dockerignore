@@ -1,7 +1,6 @@
 node_modules
 dist
 .git
-apps/web/src
 apps/web/node_modules
 *.md
 .claude

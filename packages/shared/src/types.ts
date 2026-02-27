@@ -27,9 +27,11 @@ export interface PlayerInput {
   jump: boolean;
   boost: boolean;
   drift: boolean;
+  pitchUp: boolean;
+  pitchDown: boolean;
 }
 
-export const NO_INPUT: PlayerInput = { left: false, right: false, jump: false, boost: false, drift: false };
+export const NO_INPUT: PlayerInput = { left: false, right: false, jump: false, boost: false, drift: false, pitchUp: false, pitchDown: false };
 
 export interface GameConfig {
   humanCount: number;

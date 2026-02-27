@@ -33,7 +33,7 @@ export class GameCamera {
   private fpBlend = 0;          // 0 = chase, 1 = first person
   private driftBlend = 0;       // 0 = normal, 1 = fully drifting (smooth transition)
   private keys = new Set<string>();
-  private sPressed = false;     // edge-detect for S toggle
+  private viewTogglePressed = false;  // edge-detect for X toggle
 
   constructor() {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -87,9 +87,9 @@ export class GameCamera {
   }
 
   private updateCameraControls(dt: number): void {
-    // Q/E orbit
-    const panLeft = this.keys.has('KeyQ') || this.keys.has('Comma');
-    const panRight = this.keys.has('KeyE') || this.keys.has('Period');
+    // Z/C orbit
+    const panLeft = this.keys.has('KeyZ') || this.keys.has('Comma');
+    const panRight = this.keys.has('KeyC') || this.keys.has('Period');
 
     if (panLeft) {
       this.orbitOffset = Math.min(MAX_ORBIT, this.orbitOffset + ORBIT_SPEED * dt);
@@ -106,12 +106,12 @@ export class GameCamera {
       }
     }
 
-    // S toggle first person (edge-detect)
-    const sDown = this.keys.has('KeyS');
-    if (sDown && !this.sPressed) {
+    // X toggle first person (edge-detect)
+    const xDown = this.keys.has('KeyX');
+    if (xDown && !this.viewTogglePressed) {
       this.firstPerson = !this.firstPerson;
     }
-    this.sPressed = sDown;
+    this.viewTogglePressed = xDown;
 
     // Smooth blend toward target
     const fpTarget = this.firstPerson ? 1 : 0;
@@ -139,11 +139,14 @@ export class GameCamera {
     const ang = target.renderAngle;
     const orbitAngle = ang + this.orbitOffset;
 
-    // Chase camera position (pull back further during drift)
-    const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend;
+    // Chase camera position — pull back further during drift + scale with altitude
+    const altitude = pos.y;
+    const extraDist = Math.min(altitude * 0.3, 8);
+    const extraHeight = Math.min(altitude * 0.6, 15);
+    const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist;
     const chasePosX = pos.x - Math.sin(orbitAngle) * distance;
     const chasePosZ = pos.z - Math.cos(orbitAngle) * distance;
-    const chasePosY = CHASE_HEIGHT + pos.y * 0.5;
+    const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
     const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
 
     // First person position
