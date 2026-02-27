@@ -3,7 +3,7 @@ import { Bike } from '../game/Bike';
 
 const CHASE_DISTANCE = 12;
 const CHASE_HEIGHT = 8;
-const CHASE_LERP = 4;
+const CHASE_LERP = 8;
 
 const OVERVIEW_HEIGHT = 120;
 const OVERVIEW_LERP = 2;

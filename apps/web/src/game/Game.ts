@@ -42,6 +42,7 @@ export class Game {
   private colyseus: ColyseusClient;
   private lobby: Lobby;
   private lastServerPhase = '';
+  private lastServerTick = 0;
 
   // Power-ups
   private powerUpManager!: PowerUpManager;
@@ -275,6 +276,9 @@ export class Game {
         schemaBike.x, schemaBike.z, schemaBike.angle,
         this.ctx.scene,
       );
+      if (slot === localSlot) {
+        bike.isLocalPredicted = true;
+      }
       this.bikes.push(bike);
       this.trails.push(bike.trail);
     }
@@ -536,9 +540,45 @@ export class Game {
     const roomState = this.colyseus.room?.state as any;
     if (!roomState) return;
 
-    // Sync visual bikes from schema
+    const newTick = roomState.tick !== this.lastServerTick;
+    if (newTick) this.lastServerTick = roomState.tick;
+
+    const localSlot = this.config.localSlot ?? 0;
+
     for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {
-      this.bikes[i].syncFromServer(roomState.bikes[i], dt);
+      const bike = this.bikes[i];
+      const sb = roomState.bikes[i];
+
+      if (bike.playerIndex === localSlot) {
+        // LOCAL: predict movement, reconcile on server update
+        bike.update(dt, input, this.trails, true);
+        if (newTick) {
+          bike.applyNetState({
+            x: sb.x, z: sb.z, y: sb.y, angle: sb.angle,
+            alive: sb.alive, vy: sb.vy, grounded: sb.grounded,
+            boostMeter: sb.boostMeter, boosting: sb.boosting,
+            invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
+            doubleJumpCooldown: sb.doubleJumpCooldown,
+            pitch: sb.pitch, flying: sb.flying, tick: roomState.tick,
+          });
+        }
+        // Trail still synced from server (authoritative)
+        this.syncTrailFromServer(bike, sb);
+      } else {
+        // REMOTE: buffer states, interpolate
+        if (newTick) {
+          bike.applyNetState({
+            x: sb.x, z: sb.z, y: sb.y, angle: sb.angle,
+            alive: sb.alive, vy: sb.vy, grounded: sb.grounded,
+            boostMeter: sb.boostMeter, boosting: sb.boosting,
+            invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
+            doubleJumpCooldown: sb.doubleJumpCooldown,
+            pitch: sb.pitch, flying: sb.flying, tick: roomState.tick,
+          });
+          this.syncTrailFromServer(bike, sb);
+        }
+        bike.deadReckon(dt, roomState.tick - 1); // render 1 tick behind
+      }
     }
 
     // Update power-up visuals (spawning/pickup handled via broadcast messages)
@@ -547,6 +587,17 @@ export class Game {
     this.syncScoresFromServer(roomState);
     this.hud.update(this.bikes, roomState.roundNumber, roomState.roundsToWin);
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
+  }
+
+  private syncTrailFromServer(bike: Bike, schemaBike: any): void {
+    const schemaTrailLen = schemaBike.trail.length;
+    if (schemaTrailLen !== bike.trail.points.length) {
+      const points: Array<{ x: number; y: number; z: number }> = [];
+      for (const tp of schemaBike.trail) {
+        points.push({ x: tp.x, y: tp.y, z: tp.z });
+      }
+      bike.trail.syncFromSimTrail(points);
+    }
   }
 
   // --- Round End (Quickplay) ---
