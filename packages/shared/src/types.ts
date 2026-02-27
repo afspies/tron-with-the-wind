@@ -38,6 +38,6 @@ export interface GameConfig {
   aiCount: number;
   aiDifficulty: AIDifficulty;
   roundsToWin: number;
-  mode: 'quickplay' | 'online';
+  mode: 'quickplay' | 'online' | 'tutorial';
   localSlot?: number;
 }

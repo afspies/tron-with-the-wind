@@ -710,6 +710,135 @@
       font-weight: 700;
       min-width: 3ch;
     }
+
+
+    /* Tutorial overlay */
+    #tutorial-overlay {
+      position: absolute;
+      bottom: 4vmin;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(26,10,46,0.85);
+      border: 2px solid rgba(153,102,204,0.5);
+      border-radius: 12px;
+      padding: 1.5rem 2.5rem;
+      text-align: center;
+      min-width: 400px;
+      max-width: 520px;
+      z-index: 40;
+      animation: tutorial-fade-in 0.4s ease-out;
+    }
+    @keyframes tutorial-fade-in {
+      from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .tutorial-progress {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 0.8rem;
+    }
+    .tutorial-pip {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(153,102,204,0.3);
+      border: 1px solid rgba(153,102,204,0.5);
+      transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+    }
+    .tutorial-pip.done {
+      background: #50C878;
+      border-color: #50C878;
+      box-shadow: 0 0 6px rgba(80,200,120,0.5);
+    }
+    .tutorial-pip.active {
+      background: #ffd700;
+      border-color: #ffd700;
+      box-shadow: 0 0 8px rgba(255,215,0,0.6);
+    }
+    .tutorial-title {
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #ffd700;
+      margin-bottom: 0.5rem;
+      transition: color 0.3s;
+    }
+    #tutorial-overlay.step-done .tutorial-title {
+      color: #50C878;
+    }
+    #tutorial-overlay.step-done {
+      border-color: rgba(80,200,120,0.5);
+    }
+    .tutorial-instruction {
+      font-size: 0.95rem;
+      color: #f0e6d3;
+      line-height: 1.5;
+      margin-bottom: 0.6rem;
+    }
+    .tutorial-hint {
+      font-size: 0.8rem;
+      color: #9966CC;
+      min-height: 1.2em;
+    }
+    .tutorial-key {
+      display: inline-block;
+      padding: 2px 8px;
+      margin: 0 2px;
+      background: rgba(255,215,0,0.15);
+      border: 1px solid rgba(255,215,0,0.4);
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: #ffd700;
+    }
+    .tutorial-skip-btn {
+      margin-top: 0.8rem;
+      padding: 6px 16px;
+      font-family: 'Cinzel', serif;
+      font-size: 0.8rem;
+      color: rgba(153,102,204,0.7);
+      background: transparent;
+      border: 1px solid rgba(153,102,204,0.3);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .tutorial-skip-btn:hover {
+      color: #ffd700;
+      border-color: rgba(255,215,0,0.5);
+    }
+    @keyframes tutorial-step-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .tutorial-step-animate {
+      animation: tutorial-step-in 0.3s ease-out;
+    }
+
+    /* Tutorial complete screen */
+    #tutorial-complete-msg {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(ellipse at center, rgba(26,10,46,0.9) 0%, rgba(10,5,20,0.97) 100%);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+    #tutorial-complete-msg h1 {
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 3rem;
+      font-weight: 900;
+      color: #ffd700;
+      margin-bottom: 0.5rem;
+    }
+    .tutorial-complete-sub {
+      font-size: 1.1rem;
+      color: #9966CC;
+      margin-bottom: 2rem;
+    }
+
     /* Settings panel */
     #settings {
       display: none;
@@ -812,6 +941,7 @@
       <p class="subtitle">A Fantasy Lightcycle Battle</p>
       <input id="nickname-input" type="text" maxlength="16" placeholder="Enter nickname" autocomplete="off" />
       <button class="menu-btn" id="btn-quickplay">Quick Play</button>
+      <button class="menu-btn" id="btn-tutorial">Tutorial</button>
       <button class="menu-btn" id="btn-online">Online Play</button>
       <div id="online-panel">
         <button class="menu-btn" id="btn-create-room">Create Room</button>
@@ -886,6 +1016,21 @@
     <div id="host-disconnected">
       <h2>Host Disconnected</h2>
       <button class="menu-btn" id="btn-dc-menu">Main Menu</button>
+    </div>
+
+    <div id="tutorial-overlay" style="display:none;">
+      <div class="tutorial-progress" id="tutorial-progress"></div>
+      <div class="tutorial-title" id="tutorial-title"></div>
+      <div class="tutorial-instruction" id="tutorial-instruction"></div>
+      <div class="tutorial-hint" id="tutorial-hint"></div>
+      <button class="tutorial-skip-btn" id="tutorial-skip">Skip &raquo;</button>
+    </div>
+
+    <div id="tutorial-complete-msg" style="display:none;">
+      <h1>Tutorial Complete!</h1>
+      <p class="tutorial-complete-sub">You've mastered all the mechanics. Time to ride!</p>
+      <button class="menu-btn" id="btn-tutorial-quickplay">Quick Play</button>
+      <button class="menu-btn" id="btn-tutorial-menu" style="margin-top:4px;">Main Menu</button>
     </div>
 
     <div id="hud">

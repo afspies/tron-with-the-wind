@@ -8,11 +8,13 @@ export class Menu {
   private nicknameInput: HTMLInputElement;
   private onStart: (config: GameConfig) => void;
   private onOnline: () => void;
+  private onTutorial: () => void;
   private onSettings: () => void;
 
-  constructor(onStart: (config: GameConfig) => void, onOnline: () => void, onSettings: () => void) {
+  constructor(onStart: (config: GameConfig) => void, onOnline: () => void, onTutorial: () => void, onSettings: () => void) {
     this.onStart = onStart;
     this.onOnline = onOnline;
+    this.onTutorial = onTutorial;
     this.onSettings = onSettings;
     this.menuEl = document.getElementById('menu')!;
     this.onlinePanel = document.getElementById('online-panel')!;
@@ -40,6 +42,10 @@ export class Menu {
         roundsToWin: 3,
         mode: 'quickplay',
       });
+    });
+
+    document.getElementById('btn-tutorial')!.addEventListener('click', () => {
+      this.onTutorial();
     });
 
     document.getElementById('btn-online')!.addEventListener('click', () => {
