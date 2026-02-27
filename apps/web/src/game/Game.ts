@@ -33,7 +33,10 @@ function netStateFromSchema(sb: any, tick: number): {
   invulnerable: boolean; invulnerableTimer: number;
   doubleJumpCooldown: number;
   drifting: boolean; velocityAngle: number;
-  pitch: number; flying: boolean; tick: number;
+  pitch: number; flying: boolean;
+  qx: number; qy: number; qz: number; qw: number;
+  surfaceId: number;
+  tick: number;
 } {
   return {
     x: sb.x, z: sb.z, y: sb.y, angle: sb.angle,
@@ -42,7 +45,10 @@ function netStateFromSchema(sb: any, tick: number): {
     invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
     doubleJumpCooldown: sb.doubleJumpCooldown,
     drifting: sb.drifting, velocityAngle: sb.velocityAngle,
-    pitch: sb.pitch, flying: sb.flying, tick,
+    pitch: sb.pitch, flying: sb.flying,
+    qx: sb.qx, qy: sb.qy, qz: sb.qz, qw: sb.qw,
+    surfaceId: sb.surfaceId,
+    tick,
   };
 }
 

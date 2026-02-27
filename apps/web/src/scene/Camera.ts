@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { quatRotateVec3 } from '@tron/shared';
+import type { Vec3 } from '@tron/shared';
 import { Bike } from '../game/Bike';
 
 const CHASE_DISTANCE = 12;
@@ -18,6 +20,16 @@ const MAX_ORBIT = Math.PI * 0.8; // max orbit angle (~144 degrees)
 const FP_TRANSITION_SPEED = 5; // blend speed for FP transitions
 const FP_HEIGHT = 1.2;        // eye height in first person
 const FP_FORWARD_OFFSET = 0.3; // slight forward offset from bike center
+
+function vec3Len(v: Vec3): number {
+  return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+function vec3NormalizeSafe(v: Vec3): Vec3 {
+  const len = vec3Len(v);
+  if (len < 1e-6) return { x: 0, y: 1, z: 0 };
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+}
 
 export class GameCamera {
   camera: THREE.PerspectiveCamera;
@@ -132,34 +144,59 @@ export class GameCamera {
 
     // Smooth drift blend transition
     const driftTarget = target.drifting ? 1 : 0;
-    const driftBlendSpeed = target.drifting ? 3 : 2; // ease in moderately, ease out smoothly
+    const driftBlendSpeed = target.drifting ? 3 : 2;
     this.driftBlend += (driftTarget - this.driftBlend) * (1 - Math.exp(-driftBlendSpeed * dt));
 
     const pos = target.renderPosition;
-    const ang = target.renderAngle;
-    const orbitAngle = ang + this.orbitOffset;
+    const q = target.orientationQuat;
 
-    // Chase camera position — pull back further during drift + scale with altitude
-    const altitude = pos.y;
-    const extraDist = Math.min(altitude * 0.3, 8);
-    const extraHeight = Math.min(altitude * 0.6, 15);
-    const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist;
-    const chasePosX = pos.x - Math.sin(orbitAngle) * distance;
-    const chasePosZ = pos.z - Math.cos(orbitAngle) * distance;
-    const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
-    const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
+    // Use surface normal as "up" when grounded, world up when airborne
+    const up: Vec3 = target.grounded
+      ? target.surfaceNormal
+      : { x: 0, y: 1, z: 0 };
 
-    // First person position
-    const fpPosX = pos.x + Math.sin(ang) * FP_FORWARD_OFFSET;
-    const fpPosZ = pos.z + Math.cos(ang) * FP_FORWARD_OFFSET;
-    const fpPosY = pos.y + FP_HEIGHT;
-    // Look far ahead in bike direction (with orbit offset for panning in FP)
+    // Bike forward direction from orientation quaternion
+    const fwd = quatRotateVec3(q, { x: 0, y: 0, z: 1 });
+
+    // Right vector (perpendicular to forward and up)
+    const right = vec3NormalizeSafe({
+      x: fwd.y * up.z - fwd.z * up.y,
+      y: fwd.z * up.x - fwd.x * up.z,
+      z: fwd.x * up.y - fwd.y * up.x,
+    });
+
+    // Apply orbit offset: rotate behind direction around surface normal
+    const cosO = Math.cos(this.orbitOffset);
+    const sinO = Math.sin(this.orbitOffset);
+    // Behind = -fwd, then orbited around up axis
+    const behindX = -fwd.x * cosO + right.x * sinO;
+    const behindY = -fwd.y * cosO + right.y * sinO;
+    const behindZ = -fwd.z * cosO + right.z * sinO;
+
+    const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend;
+
+    // Chase camera: behind + above (along surface normal)
+    const chasePosX = pos.x + behindX * distance + up.x * CHASE_HEIGHT;
+    const chasePosY = pos.y + behindY * distance + up.y * CHASE_HEIGHT;
+    const chasePosZ = pos.z + behindZ * distance + up.z * CHASE_HEIGHT;
+    // Look at: bike + slight offset along up
+    const chaseLookAt = new THREE.Vector3(
+      pos.x + up.x, pos.y + up.y, pos.z + up.z,
+    );
+
+    // First person position: at bike + forward offset + up offset
+    const fpPosX = pos.x + fwd.x * FP_FORWARD_OFFSET + up.x * FP_HEIGHT;
+    const fpPosY = pos.y + fwd.y * FP_FORWARD_OFFSET + up.y * FP_HEIGHT;
+    const fpPosZ = pos.z + fwd.z * FP_FORWARD_OFFSET + up.z * FP_HEIGHT;
+    // Look far ahead (with orbit offset for panning)
+    const lookFwdX = fwd.x * cosO + right.x * sinO;
+    const lookFwdY = fwd.y * cosO + right.y * sinO;
+    const lookFwdZ = fwd.z * cosO + right.z * sinO;
     const lookDist = 50;
-    const fpLookAngle = ang + this.orbitOffset;
     const fpLookAt = new THREE.Vector3(
-      pos.x + Math.sin(fpLookAngle) * lookDist,
-      pos.y + FP_HEIGHT * 0.8,
-      pos.z + Math.cos(fpLookAngle) * lookDist,
+      pos.x + lookFwdX * lookDist + up.x * FP_HEIGHT * 0.8,
+      pos.y + lookFwdY * lookDist + up.y * FP_HEIGHT * 0.8,
+      pos.z + lookFwdZ * lookDist + up.z * FP_HEIGHT * 0.8,
     );
 
     // Blend between chase and first person

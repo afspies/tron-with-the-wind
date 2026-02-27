@@ -31,7 +31,7 @@ export class SimTrail {
     this.lastSamplePos = pts.length > 0 ? pts[pts.length - 1] : null;
   }
 
-  deleteSegmentsInRadius(cx: number, cz: number, radius: number): void {
+  deleteSegmentsInRadius(cx: number, cz: number, radius: number, cy = 0): void {
     const r2 = radius * radius;
     const result: TrailPoint[] = [];
     let removedAny = false;
@@ -43,8 +43,9 @@ export class SimTrail {
         continue;
       }
       const dx = p.x - cx;
+      const dy = p.y - cy;
       const dz = p.z - cz;
-      if (dx * dx + dz * dz <= r2) {
+      if (dx * dx + dy * dy + dz * dz <= r2) {
         removedAny = true;
       } else {
         if (removedAny && result.length > 0) {

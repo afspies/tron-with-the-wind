@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TRAIL_HEIGHT, TRAIL_SAMPLE_DISTANCE, TRAIL_RAMP_SEGMENTS } from '@tron/shared';
+import { getSurfaceNormalAtPoint } from '@tron/shared';
 import type { TrailPoint } from '@tron/shared';
 
 export class Trail {
@@ -38,8 +39,9 @@ export class Trail {
 
     if (this.lastSamplePos) {
       const dx = x - this.lastSamplePos.x;
+      const dy = y - this.lastSamplePos.y;
       const dz = z - this.lastSamplePos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (dist < TRAIL_SAMPLE_DISTANCE) return;
     }
 
@@ -78,7 +80,8 @@ export class Trail {
     return TRAIL_HEIGHT * (distFromEnd / TRAIL_RAMP_SEGMENTS);
   }
 
-  /** Write a single wall segment (two triangles / 6 verts) into the geometry buffers */
+  /** Write a single wall segment (two triangles / 6 verts) into the geometry buffers.
+   * Trail wall extends along the surface normal at each point. */
   private writeSegment(
     posArr: Float32Array,
     normArr: Float32Array,
@@ -88,24 +91,35 @@ export class Trail {
     h1: number,
     h2: number,
   ): void {
-    const dx = p2.x - p1.x;
-    const dz = p2.z - p1.z;
-    const len = Math.sqrt(dx * dx + dz * dz);
-    const nx = -dz / (len || 1);
-    const nz = dx / (len || 1);
+    // Get surface normal at midpoint to determine extrusion direction
+    const midX = (p1.x + p2.x) * 0.5;
+    const midY = (p1.y + p2.y) * 0.5;
+    const midZ = (p1.z + p2.z) * 0.5;
+    const sn = getSurfaceNormalAtPoint({ x: midX, y: midY, z: midZ });
+
+    // "Top" positions: offset along surface normal by trail height
+    const t1x = p1.x + sn.x * h1, t1y = p1.y + sn.y * h1, t1z = p1.z + sn.z * h1;
+    const t2x = p2.x + sn.x * h2, t2y = p2.y + sn.y * h2, t2z = p2.z + sn.z * h2;
 
     // Two-triangle quad: bottom-left, top-left, top-right, bottom-left, top-right, bottom-right
-    posArr[baseIdx]      = p1.x; posArr[baseIdx + 1]  = p1.y;      posArr[baseIdx + 2]  = p1.z;
-    posArr[baseIdx + 3]  = p1.x; posArr[baseIdx + 4]  = p1.y + h1; posArr[baseIdx + 5]  = p1.z;
-    posArr[baseIdx + 6]  = p2.x; posArr[baseIdx + 7]  = p2.y + h2; posArr[baseIdx + 8]  = p2.z;
-    posArr[baseIdx + 9]  = p1.x; posArr[baseIdx + 10] = p1.y;      posArr[baseIdx + 11] = p1.z;
-    posArr[baseIdx + 12] = p2.x; posArr[baseIdx + 13] = p2.y + h2; posArr[baseIdx + 14] = p2.z;
-    posArr[baseIdx + 15] = p2.x; posArr[baseIdx + 16] = p2.y;      posArr[baseIdx + 17] = p2.z;
+    posArr[baseIdx]      = p1.x;  posArr[baseIdx + 1]  = p1.y;  posArr[baseIdx + 2]  = p1.z;
+    posArr[baseIdx + 3]  = t1x;   posArr[baseIdx + 4]  = t1y;   posArr[baseIdx + 5]  = t1z;
+    posArr[baseIdx + 6]  = t2x;   posArr[baseIdx + 7]  = t2y;   posArr[baseIdx + 8]  = t2z;
+    posArr[baseIdx + 9]  = p1.x;  posArr[baseIdx + 10] = p1.y;  posArr[baseIdx + 11] = p1.z;
+    posArr[baseIdx + 12] = t2x;   posArr[baseIdx + 13] = t2y;   posArr[baseIdx + 14] = t2z;
+    posArr[baseIdx + 15] = p2.x;  posArr[baseIdx + 16] = p2.y;  posArr[baseIdx + 17] = p2.z;
+
+    // Face normal: cross product of trail direction and extrude direction
+    const tdx = p2.x - p1.x, tdy = p2.y - p1.y, tdz = p2.z - p1.z;
+    const fnx = tdy * sn.z - tdz * sn.y;
+    const fny = tdz * sn.x - tdx * sn.z;
+    const fnz = tdx * sn.y - tdy * sn.x;
+    const fnLen = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz) || 1;
 
     for (let j = 0; j < 6; j++) {
-      normArr[baseIdx + j * 3]     = nx;
-      normArr[baseIdx + j * 3 + 1] = 0;
-      normArr[baseIdx + j * 3 + 2] = nz;
+      normArr[baseIdx + j * 3]     = fnx / fnLen;
+      normArr[baseIdx + j * 3 + 1] = fny / fnLen;
+      normArr[baseIdx + j * 3 + 2] = fnz / fnLen;
     }
   }
 
@@ -160,7 +174,7 @@ export class Trail {
   }
 
   /** Delete trail points within radius of (cx, cz). Returns count removed. */
-  deleteSegmentsInRadius(cx: number, cz: number, radius: number): number {
+  deleteSegmentsInRadius(cx: number, cz: number, radius: number, cy = 0): number {
     const r2 = radius * radius;
     const result: TrailPoint[] = [];
     let removedAny = false;
@@ -172,8 +186,9 @@ export class Trail {
         continue;
       }
       const dx = p.x - cx;
+      const dy = p.y - cy;
       const dz = p.z - cz;
-      if (dx * dx + dz * dz <= r2) {
+      if (dx * dx + dy * dy + dz * dz <= r2) {
         removedAny = true;
         removedCount++;
       } else {

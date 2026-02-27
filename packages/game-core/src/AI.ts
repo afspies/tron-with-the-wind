@@ -1,4 +1,4 @@
-import { NO_INPUT, ARENA_HALF, TRAIL_HEIGHT, BIKE_SPEED, BIKE_COLLISION_HEIGHT } from '@tron/shared';
+import { NO_INPUT, ARENA_HALF, TRAIL_HEIGHT, BIKE_SPEED, BIKE_COLLISION_HEIGHT, CURVE_RADIUS } from '@tron/shared';
 import type { PlayerInput, AIDifficulty, Vec2 } from '@tron/shared';
 import type { SimBike } from './SimBike';
 import type { SimTrail } from './SimTrail';
@@ -156,7 +156,9 @@ export class AIController {
       const nx = px + dx;
       const nz = pz + dz;
 
-      if (Math.abs(nx) > ARENA_HALF || Math.abs(nz) > ARENA_HALF) {
+      // Treat curve zones as obstacles — AI stays on the floor
+      const aiBoundary = ARENA_HALF - CURVE_RADIUS;
+      if (Math.abs(nx) > aiBoundary || Math.abs(nz) > aiBoundary) {
         return d;
       }
 

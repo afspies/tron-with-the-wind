@@ -253,6 +253,11 @@ export class TronRoom extends Room<TronState> {
       bike.velocityAngle = sim.velocityAngle;
       bike.pitch = sim.pitch;
       bike.flying = sim.flying;
+      bike.qx = sim.orientation.x;
+      bike.qy = sim.orientation.y;
+      bike.qz = sim.orientation.z;
+      bike.qw = sim.orientation.w;
+      bike.surfaceId = sim.surfaceId;
     }
   }
 
