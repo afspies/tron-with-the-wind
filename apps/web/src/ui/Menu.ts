@@ -43,8 +43,7 @@ export class Menu {
     });
 
     document.getElementById('btn-online')!.addEventListener('click', () => {
-      this.onlinePanel.style.display =
-        this.onlinePanel.style.display === 'none' ? 'block' : 'none';
+      this.onOnline();
     });
 
     document.getElementById('btn-settings')!.addEventListener('click', () => {
