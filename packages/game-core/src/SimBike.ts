@@ -5,6 +5,7 @@ import {
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
+  DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_TRACTION, NORMAL_TRACTION,
   FLIGHT_PITCH_RATE, FLIGHT_PITCH_RETURN_RATE, FLIGHT_MAX_PITCH,
   FLIGHT_THRUST, FLIGHT_AIR_TURN_MULT, FLIGHT_BOOST_DRAIN_MULT,
   FLIGHT_LANDING_MAX_PITCH,
@@ -52,26 +53,43 @@ export class SimBike {
   usedDoubleJumpThisAirborne = false;
   boostRechargeTimer = 0;
 
+  drifting = false;
+  velocityAngle!: number;
+  driftTimer = 0;
+  vx!: number;
+  vz!: number;
+
   constructor(playerIndex: number, color: string, x: number, z: number, angle: number) {
     this.playerIndex = playerIndex;
     this.color = color;
     this.position = { x, y: 0, z };
     this.angle = angle;
     this.speed = BIKE_SPEED;
+    this.initVelocity(angle);
     this.trail = new SimTrail();
   }
 
   update(dt: number, input: PlayerInput, allTrails: SimTrail[], skipCollision = false): void {
     if (!this.alive) return;
 
-    // Steering
-    const turnRate = this.flying ? TURN_RATE * FLIGHT_AIR_TURN_MULT : TURN_RATE;
+    // Drift state: ground-only, cancels on jump
+    const wantsDrift = input.drift && this.grounded;
+    if (wantsDrift !== this.drifting) {
+      this.drifting = wantsDrift;
+      this.driftTimer = 0;
+    }
+    if (this.drifting) this.driftTimer += dt;
+
+    // Steering (faster turn rate while drifting, slower while flying)
+    const turnRate = this.drifting ? TURN_RATE * DRIFT_TURN_MULTIPLIER
+      : this.flying ? TURN_RATE * FLIGHT_AIR_TURN_MULT
+      : TURN_RATE;
     if (input.left) this.angle += turnRate * dt;
     if (input.right) this.angle -= turnRate * dt;
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
-    this.flying = !this.grounded && this.usedDoubleJumpThisAirborne && this.boosting;
+    this.flying = !this.grounded && this.boosting;
 
     if (this.boosting) {
       const drain = this.flying ? BOOST_DRAIN * FLIGHT_BOOST_DRAIN_MULT : BOOST_DRAIN;
@@ -86,38 +104,56 @@ export class SimBike {
         this.boostMeter = Math.min(BOOST_MAX, this.boostMeter + rate * dt);
       }
     }
+    const driftMul = this.drifting ? DRIFT_SPEED_MULTIPLIER : 1.0;
+    const currentSpeed = this.speed * (this.boosting ? BOOST_MULTIPLIER : 1.0) * driftMul;
 
-    // Pitch update
-    if (this.flying) {
-      this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
-    } else if (!this.grounded && this.pitch > 0) {
-      this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RETURN_RATE * dt);
-    } else if (this.grounded) {
+    // Pitch update — player-controlled via W/S whenever airborne
+    if (!this.grounded) {
+      if (input.pitchUp) {
+        this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
+      } else if (input.pitchDown) {
+        this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RATE * dt);
+      }
+    } else {
       this.pitch = 0;
     }
 
-    // Forward direction
-    const forwardX = Math.sin(this.angle);
-    const forwardZ = Math.cos(this.angle);
+    // Velocity vector traction blend
+    const desiredVx = Math.sin(this.angle) * currentSpeed;
+    const desiredVz = Math.cos(this.angle) * currentSpeed;
+    const traction = this.drifting ? DRIFT_TRACTION : NORMAL_TRACTION;
+    const blendFactor = 1 - Math.exp(-traction * dt);
+    this.vx += (desiredVx - this.vx) * blendFactor;
+    this.vz += (desiredVz - this.vz) * blendFactor;
+
+    // Renormalize to maintain constant speed
+    const len = Math.sqrt(this.vx * this.vx + this.vz * this.vz);
+    if (len > 0.001) {
+      this.vx = (this.vx / len) * currentSpeed;
+      this.vz = (this.vz / len) * currentSpeed;
+    }
+
+    // Derive velocityAngle for schema sync and visuals
+    this.velocityAngle = Math.atan2(this.vx, this.vz);
 
     const oldPos: Vec2 = { x: this.position.x, z: this.position.z };
 
     // Move
     if (this.flying) {
-      // Flying: thrust with pitch affecting horizontal/vertical split
+      // Flight overrides traction: use heading direction with pitch-based speed
       const horizSpeed = BIKE_SPEED * BOOST_MULTIPLIER * Math.cos(this.pitch);
-      this.position.x += forwardX * horizSpeed * dt;
-      this.position.z += forwardZ * horizSpeed * dt;
+      this.position.x += Math.sin(this.angle) * horizSpeed * dt;
+      this.position.z += Math.cos(this.angle) * horizSpeed * dt;
       this.vy += FLIGHT_THRUST * Math.sin(this.pitch) * dt;
     } else if (!this.grounded && this.pitch > 0) {
       // Airborne coasting with residual pitch (no vertical thrust)
       const horizSpeed = BIKE_SPEED * Math.cos(this.pitch);
-      this.position.x += forwardX * horizSpeed * dt;
-      this.position.z += forwardZ * horizSpeed * dt;
+      this.position.x += Math.sin(this.angle) * horizSpeed * dt;
+      this.position.z += Math.cos(this.angle) * horizSpeed * dt;
     } else {
-      const speedMul = this.boosting ? BOOST_MULTIPLIER : 1.0;
-      this.position.x += forwardX * this.speed * speedMul * dt;
-      this.position.z += forwardZ * this.speed * speedMul * dt;
+      // Ground / normal air: use velocity traction model
+      this.position.x += this.vx * dt;
+      this.position.z += this.vz * dt;
     }
 
     // Jump
@@ -128,7 +164,7 @@ export class SimBike {
         this.grounded = false;
         this.jumpCooldown = JUMP_COOLDOWN;
         this.usedDoubleJumpThisAirborne = false;
-      } else if (this.doubleJumpReady && !this.usedDoubleJumpThisAirborne) {
+      } else if (this.doubleJumpReady) {
         this.vy = JUMP_INITIAL_VY;
         this.usedDoubleJumpThisAirborne = true;
         this.doubleJumpReady = false;
@@ -224,6 +260,12 @@ export class SimBike {
     createSimEffect('invulnerability')?.onGrant(this);
   }
 
+  private initVelocity(angle: number): void {
+    this.velocityAngle = angle;
+    this.vx = Math.sin(angle) * BIKE_SPEED;
+    this.vz = Math.cos(angle) * BIKE_SPEED;
+  }
+
   private die(): void {
     this.alive = false;
     const effect = this.activeEffect;
@@ -248,6 +290,9 @@ export class SimBike {
     this.doubleJumpCooldown = 0;
     this.usedDoubleJumpThisAirborne = false;
     this.boostRechargeTimer = 0;
+    this.drifting = false;
+    this.driftTimer = 0;
+    this.initVelocity(angle);
     this.pitch = 0;
     this.flying = false;
     this.trail.reset();
