@@ -4,10 +4,12 @@ import { execSync } from 'child_process';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
-let gitBranch = '';
-try {
-  gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' }).trim();
-} catch {}
+let gitBranch = process.env.GIT_BRANCH || '';
+if (!gitBranch) {
+  try {
+    gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' }).trim();
+  } catch {}
+}
 
 export default defineConfig({
   build: {

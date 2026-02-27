@@ -80,6 +80,77 @@ export class TrailParticles {
   }
 }
 
+export class DriftParticles {
+  private points: THREE.Points;
+  private positions: Float32Array;
+  private speeds: Float32Array;
+  private lifetimes: Float32Array;
+  private maxParticles = 30;
+
+  constructor(color: string, scene: THREE.Scene) {
+    this.positions = new Float32Array(this.maxParticles * 3);
+    this.speeds = new Float32Array(this.maxParticles * 3);
+    this.lifetimes = new Float32Array(this.maxParticles);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    const mat = new THREE.PointsMaterial({
+      color: new THREE.Color(0xffaa33),
+      size: 0.25,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.points = new THREE.Points(geo, mat);
+    this.points.frustumCulled = false;
+    scene.add(this.points);
+  }
+
+  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean, drifting: boolean): void {
+    const posArr = this.positions;
+    const spdArr = this.speeds;
+    const lifeArr = this.lifetimes;
+
+    // Update existing
+    for (let i = 0; i < this.maxParticles; i++) {
+      if (lifeArr[i] > 0) {
+        lifeArr[i] -= dt;
+        posArr[i * 3] += spdArr[i * 3] * dt;
+        posArr[i * 3 + 1] += spdArr[i * 3 + 1] * dt;
+        posArr[i * 3 + 2] += spdArr[i * 3 + 2] * dt;
+      }
+    }
+
+    // Spawn sparks from bike sides when drifting + grounded
+    if (drifting && grounded) {
+      const perpX = Math.cos(bikeAngle);
+      const perpZ = -Math.sin(bikeAngle);
+      let spawned = 0;
+      for (let i = 0; i < this.maxParticles && spawned < 2; i++) {
+        if (lifeArr[i] <= 0) {
+          const side = spawned === 0 ? 1 : -1;
+          posArr[i * 3] = bikeX + perpX * side * 0.5 + (Math.random() - 0.5) * 0.3;
+          posArr[i * 3 + 1] = bikeY + Math.random() * 0.3;
+          posArr[i * 3 + 2] = bikeZ + perpZ * side * 0.5 + (Math.random() - 0.5) * 0.3;
+          spdArr[i * 3] = perpX * side * (3 + Math.random() * 4);
+          spdArr[i * 3 + 1] = Math.random() * 2;
+          spdArr[i * 3 + 2] = perpZ * side * (3 + Math.random() * 4);
+          lifeArr[i] = 0.2 + Math.random() * 0.2;
+          spawned++;
+        }
+      }
+    }
+
+    (this.points.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  dispose(scene: THREE.Scene): void {
+    scene.remove(this.points);
+    this.points.geometry.dispose();
+    (this.points.material as THREE.PointsMaterial).dispose();
+  }
+}
+
 export class DeathParticles {
   private points: THREE.Points;
   private positions: Float32Array;
