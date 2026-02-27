@@ -8,6 +8,8 @@ export class Menu {
   private nicknameInput: HTMLInputElement;
   private onStart: (config: GameConfig) => void;
   private onOnline: () => void;
+  private selectedMap: string = 'classic';
+  private mapButtons: NodeListOf<Element>;
 
   constructor(onStart: (config: GameConfig) => void, onOnline: () => void) {
     this.onStart = onStart;
@@ -30,6 +32,16 @@ export class Menu {
       }
     });
 
+    // Map selection buttons
+    this.mapButtons = document.querySelectorAll('#menu-map-options .map-btn');
+    this.mapButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.selectedMap = (btn as HTMLElement).dataset.map || 'classic';
+        this.mapButtons.forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+      });
+    });
+
     document.getElementById('btn-quickplay')!.addEventListener('click', () => {
       this.onStart({
         humanCount: 1,
@@ -37,6 +49,7 @@ export class Menu {
         aiDifficulty: 'medium',
         roundsToWin: 3,
         mode: 'quickplay',
+        mapId: this.selectedMap,
       });
     });
 
@@ -53,6 +66,11 @@ export class Menu {
   show(): void {
     this.menuEl.style.display = 'flex';
     this.onlinePanel.style.display = 'none';
+    // Reset map selection
+    this.selectedMap = 'classic';
+    this.mapButtons.forEach(b => {
+      b.classList.toggle('selected', (b as HTMLElement).dataset.map === 'classic');
+    });
   }
 
   hide(): void {

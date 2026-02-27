@@ -1,17 +1,31 @@
 import { Bike } from '../game/Bike';
 import { PowerUp } from '../game/powerups/PowerUp';
 import { ARENA_HALF } from '@tron/shared';
+import type { MapId } from '@tron/shared';
 
 const SIZE = 160;
 const PADDING = 8;
+
+// Skybridge minimap constants (matching maps.ts)
+const PLATFORM_Z_FRONT = 30;
+const PLATFORM_Z_BACK = 100;
+const PLATFORM_X_MIN = -50;
+const PLATFORM_X_MAX = 50;
+const RAMP_Z_START = 10;
+const LEFT_RAMP_X_MIN = -50;
+const LEFT_RAMP_X_MAX = -30;
+const RIGHT_RAMP_X_MIN = 30;
+const RIGHT_RAMP_X_MAX = 50;
 
 export class Minimap {
   private canvas: HTMLCanvasElement | null = null;
   private ctx2d: CanvasRenderingContext2D | null = null;
   private localBikeIndex = 0;
+  private mapId: MapId = 'classic';
 
-  show(localBikeIndex = 0): void {
+  show(localBikeIndex = 0, mapId: MapId = 'classic'): void {
     this.localBikeIndex = localBikeIndex;
+    this.mapId = mapId;
 
     if (!this.canvas) {
       this.canvas = document.createElement('canvas');
@@ -38,6 +52,11 @@ export class Minimap {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
     ctx.lineWidth = 1;
     ctx.strokeRect(aMin.mx, aMin.my, aMax.mx - aMin.mx, aMax.my - aMin.my);
+
+    // Draw Skybridge overlay
+    if (this.mapId === 'skybridge') {
+      this.drawSkybridgeOverlay(ctx);
+    }
 
     // Trails
     for (const bike of bikes) {
@@ -127,6 +146,33 @@ export class Minimap {
       }
       ctx.restore();
     }
+  }
+
+  private drawSkybridgeOverlay(ctx: CanvasRenderingContext2D): void {
+    // Platform rectangle (semi-transparent)
+    const pMin = this.worldToMinimap(PLATFORM_X_MIN, PLATFORM_Z_FRONT);
+    const pMax = this.worldToMinimap(PLATFORM_X_MAX, PLATFORM_Z_BACK);
+    ctx.fillStyle = 'rgba(60, 30, 90, 0.4)';
+    ctx.fillRect(pMin.mx, pMin.my, pMax.mx - pMin.mx, pMax.my - pMin.my);
+
+    // Left ramp
+    const lrMin = this.worldToMinimap(LEFT_RAMP_X_MIN, RAMP_Z_START);
+    const lrMax = this.worldToMinimap(LEFT_RAMP_X_MAX, PLATFORM_Z_FRONT);
+    ctx.fillStyle = 'rgba(60, 30, 90, 0.3)';
+    ctx.fillRect(lrMin.mx, lrMin.my, lrMax.mx - lrMin.mx, lrMax.my - lrMin.my);
+
+    // Right ramp
+    const rrMin = this.worldToMinimap(RIGHT_RAMP_X_MIN, RAMP_Z_START);
+    const rrMax = this.worldToMinimap(RIGHT_RAMP_X_MAX, PLATFORM_Z_FRONT);
+    ctx.fillRect(rrMin.mx, rrMin.my, rrMax.mx - rrMin.mx, rrMax.my - rrMin.my);
+
+    // Bright line for platform front edge (cliff)
+    ctx.strokeStyle = 'rgba(153, 102, 204, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pMin.mx, pMin.my);
+    ctx.lineTo(pMax.mx, pMin.my);
+    ctx.stroke();
   }
 
   private worldToMinimap(x: number, z: number): { mx: number; my: number } {

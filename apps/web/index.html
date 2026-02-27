@@ -103,6 +103,48 @@
       box-shadow: 0 0 20px rgba(153,102,204,0.4);
     }
 
+    .map-options {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+    }
+    .map-btn {
+      width: 150px;
+      padding: 14px 16px;
+      font-family: 'Cinzel', serif;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #f0e6d3;
+      background: rgba(26,10,46,0.6);
+      border: 2px solid rgba(153,102,204,0.3);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+      text-align: center;
+      touch-action: manipulation;
+    }
+    .map-btn .map-name {
+      display: block;
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+    .map-btn .map-desc {
+      display: block;
+      font-size: 0.7rem;
+      color: #9966CC;
+      font-weight: 400;
+    }
+    .map-btn:hover {
+      border-color: rgba(153,102,204,0.6);
+      background: rgba(153,102,204,0.2);
+    }
+    .map-btn.selected {
+      border-color: #ffd700;
+      background: rgba(255,215,0,0.1);
+      box-shadow: 0 0 15px rgba(255,215,0,0.2);
+    }
+
     .menu-section {
       margin-top: 2rem;
       text-align: center;
@@ -719,6 +761,16 @@
       <h1>Tron with the Wind</h1>
       <p class="subtitle">A Fantasy Lightcycle Battle</p>
       <input id="nickname-input" type="text" maxlength="16" placeholder="Enter nickname" autocomplete="off" />
+      <div class="map-options" id="menu-map-options">
+        <button class="map-btn selected" data-map="classic">
+          <span class="map-name">Classic</span>
+          <span class="map-desc">Flat arena</span>
+        </button>
+        <button class="map-btn" data-map="skybridge">
+          <span class="map-name">Skybridge</span>
+          <span class="map-desc">Elevated platform</span>
+        </button>
+      </div>
       <button class="menu-btn" id="btn-quickplay">Quick Play</button>
       <button class="menu-btn" id="btn-online">Online Play</button>
       <div id="online-panel">
@@ -735,6 +787,11 @@
       <div class="lobby-label">Room Code</div>
       <div id="lobby-player-list"></div>
       <div id="lobby-host-controls">
+        <label>Map</label>
+        <select id="lobby-map">
+          <option value="classic" selected>Classic</option>
+          <option value="skybridge">Skybridge</option>
+        </select>
         <label>AI Opponents</label>
         <select id="lobby-ai-count">
           <option value="0">None</option>

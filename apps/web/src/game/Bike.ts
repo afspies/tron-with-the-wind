@@ -74,6 +74,9 @@ export class Bike {
   pitch = 0;
   flying = false;
 
+  terrainHeightFn: (x: number, z: number, currentY: number) => number = () => 0;
+  terrainCeilingFn: (x: number, z: number, currentY: number) => number = () => Infinity;
+
   // Client-side prediction: local player's bike runs physics locally
   isLocalPredicted = false;
 
@@ -282,17 +285,34 @@ export class Bike {
     if (!this.grounded) {
       this.position.y += this.vy * dt;
       this.vy -= GRAVITY * dt;
-      if (this.position.y <= 0) {
+
+      // Ceiling check: prevent passing through platform from below
+      const ceiling = this.terrainCeilingFn(this.position.x, this.position.z, this.position.y);
+      if (this.position.y >= ceiling) {
+        this.position.y = ceiling;
+        if (this.vy > 0) this.vy = 0;
+      }
+
+      const groundY = this.terrainHeightFn(this.position.x, this.position.z, this.position.y);
+      if (this.position.y <= groundY) {
         if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
           this.die();
           return;
         }
-        this.position.y = 0;
+        this.position.y = groundY;
         this.vy = 0;
         this.grounded = true;
         this.pitch = 0;
         this.flying = false;
         this.jumpCooldown = JUMP_COOLDOWN;
+      }
+    }
+
+    // Edge detection: if grounded but terrain dropped away, become airborne
+    if (this.grounded) {
+      const groundY = this.terrainHeightFn(this.position.x, this.position.z, this.position.y);
+      if (this.position.y > groundY + 0.1) {
+        this.grounded = false;
       }
     }
 
@@ -799,7 +819,7 @@ export class Bike {
   }
 
   reset(x: number, z: number, angle: number): void {
-    this.position.set(x, 0, z);
+    this.position.set(x, this.terrainHeightFn(x, z, 999), z);
     this.angle = angle;
     this.vy = 0;
     this.alive = true;

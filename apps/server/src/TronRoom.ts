@@ -1,7 +1,7 @@
 import { Room, Client } from 'colyseus';
 import { Simulation } from '@tron/game-core';
 import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, ClientMsg, ServerMsg } from '@tron/shared';
-import type { PlayerInput, AIDifficulty } from '@tron/shared';
+import type { PlayerInput, AIDifficulty, MapId } from '@tron/shared';
 import {
   TronState, PlayerSchema, BikeSchema, TrailPointSchema, PowerUpSchema,
 } from './schema/TronState';
@@ -42,7 +42,7 @@ export class TronRoom extends Room<TronState> {
       });
     });
 
-    this.onMessage(ClientMsg.SetConfig, (client, data: { aiCount?: number; aiDifficulty?: string; roundsToWin?: number }) => {
+    this.onMessage(ClientMsg.SetConfig, (client, data: { aiCount?: number; aiDifficulty?: string; roundsToWin?: number; mapId?: string }) => {
       if (client.sessionId !== this.state.hostSessionId) return;
       if (this.state.phase !== 'lobby') return;
 
@@ -54,6 +54,9 @@ export class TronRoom extends Room<TronState> {
       }
       if (data.roundsToWin != null) {
         this.state.roundsToWin = Math.max(1, Math.min(10, data.roundsToWin));
+      }
+      if (data.mapId && ['classic', 'skybridge'].includes(data.mapId)) {
+        this.state.mapId = data.mapId;
       }
     });
 
@@ -134,6 +137,7 @@ export class TronRoom extends Room<TronState> {
       aiDifficulty: this.state.aiDifficulty as AIDifficulty,
       roundsToWin: this.state.roundsToWin,
       humanSlots,
+      mapId: this.state.mapId as MapId,
     });
 
     // Initialize schema bikes

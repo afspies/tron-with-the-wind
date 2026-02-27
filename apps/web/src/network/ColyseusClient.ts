@@ -43,6 +43,7 @@ export interface LobbyState {
   aiCount: number;
   aiDifficulty: AIDifficulty;
   roundsToWin: number;
+  mapId: string;
 }
 
 export class ColyseusClient {
@@ -128,7 +129,7 @@ export class ColyseusClient {
     this.room?.send(ClientMsg.Chat, { text });
   }
 
-  sendConfig(config: { aiCount?: number; aiDifficulty?: string; roundsToWin?: number }): void {
+  sendConfig(config: { aiCount?: number; aiDifficulty?: string; roundsToWin?: number; mapId?: string }): void {
     this.room?.send(ClientMsg.SetConfig, config);
   }
 
@@ -149,7 +150,7 @@ export class ColyseusClient {
 
   getLobbyState(): LobbyState {
     if (!this.room?.state) {
-      return { players: [], aiCount: 0, aiDifficulty: 'medium', roundsToWin: 3 };
+      return { players: [], aiCount: 0, aiDifficulty: 'medium', roundsToWin: 3, mapId: 'classic' };
     }
     const state = this.room.state as any;
     const players: LobbyPlayer[] = [];
@@ -161,6 +162,7 @@ export class ColyseusClient {
       aiCount: state.aiCount ?? 0,
       aiDifficulty: (state.aiDifficulty ?? 'medium') as AIDifficulty,
       roundsToWin: state.roundsToWin ?? 3,
+      mapId: state.mapId ?? 'classic',
     };
   }
 

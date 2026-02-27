@@ -50,6 +50,7 @@ export class TronState extends Schema {
   @type('uint8') aiCount: number = 0;
   @type('string') aiDifficulty: string = 'medium';
   @type('string') hostSessionId: string = '';
+  @type('string') mapId: string = 'classic';
 
   @type({ map: PlayerSchema }) players = new MapSchema<PlayerSchema>();
   @type([BikeSchema]) bikes = new ArraySchema<BikeSchema>();
