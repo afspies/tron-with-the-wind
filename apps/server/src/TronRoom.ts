@@ -211,6 +211,11 @@ export class TronRoom extends Room<TronState> {
         }
         this.syncPowerUpsToSchema();
 
+        // Broadcast game events (deaths, near misses, round/game wins)
+        for (const event of result.gameEvents) {
+          this.broadcast(ServerMsg.GameEvent, event);
+        }
+
         // Check round end
         if (result.roundEnded) {
           this.syncScores();

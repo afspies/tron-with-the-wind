@@ -11,4 +11,5 @@ export enum ClientMsg {
 export enum ServerMsg {
   Chat = 'chat',
   PowerUpEffect = 'powerupEffect',
+  GameEvent = 'gameEvent',
 }

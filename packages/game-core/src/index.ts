@@ -1,11 +1,13 @@
-export { SimBike } from './SimBike';
+export { SimBike, type DeathInfo } from './SimBike';
 export { SimTrail } from './SimTrail';
 export {
   lineSegmentsIntersect,
   checkTrailCollision,
   checkTrailCollisionDetailed,
   checkWallCollision,
+  checkNearMiss,
   type TrailHitInfo,
+  type NearMissInfo,
 } from './Collision';
 export { AIController } from './AI';
 export { Round } from './Round';

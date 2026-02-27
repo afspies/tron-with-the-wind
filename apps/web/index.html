@@ -459,6 +459,8 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      overflow-y: auto;
+      padding: 2rem 1rem;
     }
     #game-over h1 {
       font-family: 'Cinzel Decorative', cursive;
@@ -567,6 +569,110 @@
       border: 2px solid rgba(255,255,255,0.3);
       border-radius: 4px;
       pointer-events: none;
+    }
+
+    /* Highlights */
+    #highlights-section {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 640px;
+      margin-top: 1rem;
+    }
+    .highlight-video-wrapper {
+      position: relative;
+      width: 100%;
+    }
+    .highlight-video {
+      width: 100%;
+      max-height: 240px;
+      border-radius: 8px;
+      border: 1px solid rgba(153,102,204,0.4);
+      background: #000;
+      display: block;
+    }
+    .highlight-watermark {
+      position: absolute;
+      right: 16px;
+      bottom: 52px;
+      font-family: Cinzel, serif;
+      font-size: 0.75rem;
+      color: rgba(255, 215, 0, 0.4);
+      pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    }
+    .highlight-filmstrip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      width: 100%;
+      padding: 8px 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(153,102,204,0.4) transparent;
+    }
+    .highlight-card {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: rgba(153,102,204,0.15);
+      border: 1px solid rgba(153,102,204,0.3);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .highlight-card:hover {
+      border-color: #ffd700;
+      background: rgba(255,215,0,0.1);
+      box-shadow: 0 0 8px rgba(255,215,0,0.2);
+    }
+    .hl-icon { font-size: 1rem; }
+    .hl-label { color: #f0e6d3; }
+    .hl-time { color: #9966CC; font-family: monospace; font-size: 0.7rem; }
+    .highlight-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .highlight-btn {
+      width: auto !important;
+      padding: 8px 20px !important;
+      font-size: 0.9rem !important;
+      text-decoration: none;
+      text-align: center;
+    }
+    .highlight-cta {
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: rgba(255,215,0,0.5);
+      letter-spacing: 0.1em;
+    }
+    .highlight-toast {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: rgba(26,10,46,0.95);
+      border: 1px solid #ffd700;
+      color: #ffd700;
+      padding: 8px 20px;
+      border-radius: 6px;
+      font-family: 'Cinzel', serif;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: opacity 0.3s, transform 0.3s;
+      z-index: 200;
+      pointer-events: none;
+    }
+    .highlight-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
     }
 
     /* === Local Player HUD Widgets === */
@@ -828,6 +934,7 @@
     <div id="game-over">
       <h1>Victory!</h1>
       <p class="winner-name" id="game-over-winner"></p>
+      <div id="highlights-section"></div>
       <button class="menu-btn" id="btn-play-again">Play Again</button>
       <button class="menu-btn" id="btn-main-menu" style="margin-top:4px;">Main Menu</button>
     </div>
