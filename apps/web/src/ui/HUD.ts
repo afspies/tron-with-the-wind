@@ -17,7 +17,7 @@ export class HUD {
     this.playerHUD = new PlayerHUD();
   }
 
-  show(playerCount: number, round: number, roundsToWin: number, localPlayerIndex?: number, isOnline = false): void {
+  show(playerCount: number, round: number, roundsToWin: number, localPlayerIndex?: number, isOnline = false, names?: string[]): void {
     this.hudEl.style.display = 'block';
     this.playersEl.innerHTML = '';
     this.localPlayerIndex = localPlayerIndex;
@@ -40,10 +40,11 @@ export class HUD {
       const row = document.createElement('div');
       row.className = 'hud-player';
       row.id = `hud-p${i}`;
+      const displayName = names?.[i] || PLAYER_NAMES[i];
       const youTag = localPlayerIndex !== undefined && i === localPlayerIndex ? ' (You)' : '';
       row.innerHTML = `
         <div class="hud-dot" style="color:${PLAYER_COLORS[i]};background:${PLAYER_COLORS[i]}"></div>
-        <span>${PLAYER_NAMES[i]}${youTag}</span>
+        <span>${displayName}${youTag}</span>
         <span class="hud-drift" id="hud-drift-${i}" style="display:none;color:#ffaa33;font-size:0.7em;margin-left:4px;">DRIFT</span>
         <span class="hud-status" id="hud-status-${i}"></span>
         <div class="hud-boost-bar">
