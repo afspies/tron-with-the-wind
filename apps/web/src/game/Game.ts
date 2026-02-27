@@ -20,6 +20,7 @@ import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
 import { Minimap } from '../ui/Minimap';
 import { PowerUpManager } from './PowerUpManager';
+import { TutorialManager } from '../ui/Tutorial';
 
 export class Game {
   private ctx: SceneContext;
@@ -47,6 +48,9 @@ export class Game {
 
   // Power-ups
   private powerUpManager!: PowerUpManager;
+
+  // Tutorial
+  private tutorial: TutorialManager;
 
   // UI
   private menu: Menu;
@@ -80,12 +84,15 @@ export class Game {
     // Network
     this.colyseus = new ColyseusClient();
 
+    this.tutorial = new TutorialManager();
+
     this.menu = new Menu(
       (config) => this.startGame(config),
       () => {
         // Online button clicked — show create/join
         this.lobby.showCreateJoin();
       },
+      () => this.startTutorial(),
     );
 
     this.lobby = new Lobby(
@@ -468,6 +475,178 @@ export class Game {
     this.touchControls.show();
   }
 
+  // --- Tutorial ---
+
+  private startTutorial(): void {
+    if (this.roundEndTimeout !== null) {
+      clearTimeout(this.roundEndTimeout);
+      this.roundEndTimeout = null;
+    }
+
+    this.config = {
+      humanCount: 1,
+      aiCount: 1,
+      aiDifficulty: 'easy',
+      roundsToWin: 999,
+      mode: 'tutorial',
+    };
+
+    this.menu.hide();
+    this.scoreboard.hideAll();
+    this.cleanupBikes();
+
+    this.tutorial.startStep(0);
+    this.setupTutorialSimulation();
+    this.tutorial.show();
+  }
+
+  private setupTutorialSimulation(): void {
+    const stepConfig = this.tutorial.getCurrentStepConfig();
+    const totalPlayers = 1 + stepConfig.aiCount;
+
+    // Clean up old sim + bikes
+    if (this.simulation) {
+      for (const bike of this.bikes) bike.dispose(this.ctx.scene);
+      this.bikes = [];
+      this.trails = [];
+      this.simulation = null;
+    }
+    this.powerUpManager.reset();
+
+    this.simulation = new Simulation({
+      playerCount: totalPlayers,
+      aiCount: stepConfig.aiCount,
+      aiDifficulty: 'easy',
+      roundsToWin: 999,
+      humanSlots: [0],
+    });
+
+    for (let i = 0; i < totalPlayers; i++) {
+      const bike = new Bike(i, PLAYER_COLORS[i], 0, 0, 0, this.ctx.scene);
+      this.bikes.push(bike);
+      this.trails.push(bike.trail);
+    }
+
+    this.round = new Round();
+    this.simulation.startRound();
+
+    // Sync visual bikes from sim spawn positions
+    for (let i = 0; i < this.bikes.length; i++) {
+      const sim = this.simulation.bikes[i];
+      this.bikes[i].reset(sim.position.x, sim.position.z, sim.angle);
+    }
+
+    this.gameCamera.setLocalBikeIndex(0);
+    this.gameCamera.setMode('chase');
+
+    this.names = this.buildNames();
+    this.hud.show(this.bikes.length, 1, 999, 0, false, this.names);
+    this.minimap.show(0);
+    this.touchControls.show();
+
+    // Skip countdown — go straight to playing
+    this.state = 'PLAYING';
+    this.countdownEl.style.display = 'none';
+
+    // Force-spawn power-up if step requires it
+    if (stepConfig.spawnPowerUp && this.simulation) {
+      const playerBike = this.simulation.bikes[0];
+      // Place power-up 30 units ahead of player
+      const ahead = 30;
+      const px = playerBike.position.x + Math.sin(playerBike.angle) * ahead;
+      const pz = playerBike.position.z + Math.cos(playerBike.angle) * ahead;
+      this.powerUpManager.forceSpawn(px, pz);
+    }
+  }
+
+  private updatePlayingTutorial(dt: number): void {
+    if (!this.simulation) return;
+
+    // Gather human input
+    const inputs = new Map<number, PlayerInput>();
+    const humanInput = this.input.getInput(0);
+    inputs.set(0, humanInput);
+
+    // Tick simulation
+    const result = this.simulation.tick(dt, inputs);
+
+    // Sync visual bikes
+    for (let i = 0; i < this.bikes.length; i++) {
+      this.bikes[i].syncFromSim(this.simulation.bikes[i], dt);
+    }
+
+    // Handle powerup visual events
+    for (const event of result.powerUpEvents) {
+      if (event.type === 'powerup-spawn' || event.type === 'powerup-pickup') {
+        this.powerUpManager.handleNetEvent(event, this.bikes);
+      }
+    }
+
+    this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, false, null, []);
+
+    this.hud.update(this.bikes, 1, 999);
+    this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
+
+    // Tutorial state machine
+    const simBike = this.simulation.bikes[0];
+    const tutEvent = this.tutorial.update(simBike, humanInput, dt);
+
+    switch (tutEvent) {
+      case 'player-died':
+        this.respawnTutorialPlayer();
+        break;
+      case 'step-complete':
+        this.advanceTutorialStep();
+        break;
+      case 'tutorial-complete':
+        this.handleTutorialComplete();
+        break;
+    }
+  }
+
+  private respawnTutorialPlayer(): void {
+    if (!this.simulation) return;
+    const simBike = this.simulation.bikes[0];
+    const spawn = { x: -80 + 20, z: -80 + 20, angle: Math.PI * 0.25 };
+    simBike.reset(spawn.x, spawn.z, spawn.angle);
+    this.bikes[0].reset(spawn.x, spawn.z, spawn.angle);
+  }
+
+  private advanceTutorialStep(): void {
+    const nextStep = this.tutorial.stepIndex + 1;
+    this.tutorial.startStep(nextStep);
+    this.setupTutorialSimulation();
+    this.tutorial.show();
+  }
+
+  private handleTutorialComplete(): void {
+    this.tutorial.hide();
+    this.hideGameplayUI();
+    this.state = 'GAME_OVER'; // Reuse GAME_OVER state to block gameplay
+
+    const completeEl = document.getElementById('tutorial-complete-msg')!;
+    completeEl.style.display = 'flex';
+
+    document.getElementById('btn-tutorial-quickplay')!.onclick = () => {
+      completeEl.style.display = 'none';
+      this.cleanupBikes();
+      this.startGame({
+        humanCount: 1,
+        aiCount: 3,
+        aiDifficulty: 'medium',
+        roundsToWin: 3,
+        mode: 'quickplay',
+      });
+    };
+
+    document.getElementById('btn-tutorial-menu')!.onclick = () => {
+      completeEl.style.display = 'none';
+      this.cleanupBikes();
+      this.state = 'MENU';
+      this.menu.show();
+    };
+  }
+
   private cleanupBikes(): void {
     for (const bike of this.bikes) {
       bike.dispose(this.ctx.scene);
@@ -489,9 +668,22 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.elapsedTime += dt;
 
+    // ESC exits tutorial back to menu
+    if (this.config?.mode === 'tutorial' && this.input.isKeyPressed('Escape') && this.state !== 'MENU') {
+      this.tutorial.hide();
+      document.getElementById('tutorial-complete-msg')!.style.display = 'none';
+      this.scoreboard.hideAll();
+      this.countdownEl.style.display = 'none';
+      this.hideGameplayUI();
+      this.cleanupBikes();
+      this.state = 'MENU';
+      this.menu.show();
+      return;
+    }
+
     // Quick restart (R key) in quickplay mode — edge-detected
     const rDown = this.input.isKeyPressed('KeyR');
-    const canQuickRestart = this.config && this.config.mode !== 'online' && this.state !== 'MENU';
+    const canQuickRestart = this.config && this.config.mode !== 'online' && this.config.mode !== 'tutorial' && this.state !== 'MENU';
     if (canQuickRestart && rDown && !this.rPressed) {
       this.rPressed = rDown;
       this.scoreboard.hideAll();
@@ -517,6 +709,8 @@ export class Game {
       case 'PLAYING':
         if (this.config.mode === 'online') {
           this.updatePlayingOnline(dt);
+        } else if (this.config.mode === 'tutorial') {
+          this.updatePlayingTutorial(dt);
         } else {
           this.updatePlayingLocal(dt);
         }
@@ -612,6 +806,7 @@ export class Game {
   // --- Round End (Quickplay) ---
 
   private handleRoundEnd(winnerIndex: number): void {
+    if (this.config?.mode === 'tutorial') return; // Tutorial handles its own lifecycle
     this.state = 'ROUND_END';
     this.hideGameplayUI();
 

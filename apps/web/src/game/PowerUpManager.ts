@@ -138,6 +138,13 @@ export class PowerUpManager {
     }
   }
 
+  forceSpawn(x: number, z: number): void {
+    const id = this.nextPowerUpId++;
+    const puType: PowerUpType = 'invulnerability';
+    const pu = new PowerUp(id, puType, x, z, this.scene);
+    this.powerUps.push(pu);
+  }
+
   reset(): void {
     this.dispose();
     this.spawnTimer = -POWERUP_SPAWN_DELAY;
