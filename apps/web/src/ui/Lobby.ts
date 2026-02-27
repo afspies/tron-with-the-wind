@@ -36,7 +36,7 @@ export class Lobby {
     document.getElementById('btn-join-room')!.addEventListener('click', () => {
       const input = document.getElementById('join-input') as HTMLInputElement;
       const code = input.value.trim().toUpperCase();
-      if (code.length < 3 || !/^[A-Z]+(-[A-Z]+)*$/.test(code)) return;
+      if (code.length < 3 || !/^[A-Z]+$/.test(code)) return;
       this.attemptJoin(code);
     });
 
