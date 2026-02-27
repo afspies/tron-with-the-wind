@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput, MapId } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, getTerrainHeight } from '@tron/shared';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, getTerrainHeight, getTerrainCeiling } from '@tron/shared';
 import { Simulation } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
@@ -262,6 +262,7 @@ export class Game {
     this.arena = new Arena(this.ctx.scene, mapId);
 
     const terrainFn = (x: number, z: number, currentY: number) => getTerrainHeight(mapId, x, z, currentY);
+    const ceilingFn = (x: number, z: number, currentY: number) => getTerrainCeiling(mapId, x, z, currentY);
 
     this.config = {
       humanCount: serverState.players.size,
@@ -284,6 +285,7 @@ export class Game {
         this.ctx.scene,
       );
       bike.terrainHeightFn = terrainFn;
+      bike.terrainCeilingFn = ceilingFn;
       this.bikes.push(bike);
       this.trails.push(bike.trail);
     }
@@ -366,6 +368,7 @@ export class Game {
 
     const totalPlayers = config.humanCount + config.aiCount;
     const terrainFn = (x: number, z: number, currentY: number) => getTerrainHeight(mapId, x, z, currentY);
+    const ceilingFn = (x: number, z: number, currentY: number) => getTerrainCeiling(mapId, x, z, currentY);
 
     // Quickplay mode — create headless simulation
     this.simulation = new Simulation({
@@ -386,6 +389,7 @@ export class Game {
         this.ctx.scene,
       );
       bike.terrainHeightFn = terrainFn;
+      bike.terrainCeilingFn = ceilingFn;
       this.bikes.push(bike);
       this.trails.push(bike.trail);
     }

@@ -1,5 +1,5 @@
 import type { PlayerInput, AIDifficulty, MapId } from '@tron/shared';
-import { NO_INPUT, PLAYER_COLORS, getTerrainHeight } from '@tron/shared';
+import { NO_INPUT, PLAYER_COLORS, getTerrainHeight, getTerrainCeiling } from '@tron/shared';
 import { SimBike } from './SimBike';
 import { SimTrail } from './SimTrail';
 import { Round } from './Round';
@@ -34,11 +34,13 @@ export class Simulation {
   private config: SimulationConfig;
 
   terrainHeightFn: (x: number, z: number, currentY: number) => number;
+  terrainCeilingFn: (x: number, z: number, currentY: number) => number;
 
   constructor(config: SimulationConfig) {
     this.config = config;
     const mapId = config.mapId || 'classic';
     this.terrainHeightFn = (x, z, currentY) => getTerrainHeight(mapId, x, z, currentY);
+    this.terrainCeilingFn = (x, z, currentY) => getTerrainCeiling(mapId, x, z, currentY);
 
     const totalPlayers = config.humanSlots.length + config.aiCount;
 
@@ -53,6 +55,7 @@ export class Simulation {
     for (const slot of usedSlots) {
       const bike = new SimBike(slot, PLAYER_COLORS[slot] || '#888', 0, 0, 0);
       bike.terrainHeightFn = this.terrainHeightFn;
+      bike.terrainCeilingFn = this.terrainCeilingFn;
       this.bikes.push(bike);
       this.trails.push(bike.trail);
 

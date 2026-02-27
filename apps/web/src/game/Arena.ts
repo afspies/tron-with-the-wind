@@ -238,7 +238,7 @@ export class Arena {
       const rampSurfaceGeo = new THREE.PlaneGeometry(rampWidth, Math.sqrt(SKYBRIDGE_RAMP_LENGTH ** 2 + H ** 2));
       const rampSurface = new THREE.Mesh(rampSurfaceGeo, rampMat);
       const rampAngle = Math.atan2(H, SKYBRIDGE_RAMP_LENGTH);
-      rampSurface.rotation.x = -(Math.PI / 2 - rampAngle);
+      rampSurface.rotation.x = -(Math.PI / 2 + rampAngle);
       const rampMidZ = (RAMP_Z_START + PLATFORM_Z_FRONT) / 2;
       const rampMidY = H / 2;
       rampSurface.position.set(rampCenterX, rampMidY, rampMidZ);
@@ -255,7 +255,7 @@ export class Arena {
         side: THREE.DoubleSide,
       });
       const rampGrid = new THREE.Mesh(rampGridGeo, rampGridMat);
-      rampGrid.rotation.x = -(Math.PI / 2 - rampAngle);
+      rampGrid.rotation.x = -(Math.PI / 2 + rampAngle);
       rampGrid.position.set(rampCenterX, rampMidY + 0.02, rampMidZ);
       scene.add(rampGrid);
       this.objects.push(rampGrid);

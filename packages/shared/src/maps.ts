@@ -1,7 +1,7 @@
 export type MapId = 'classic' | 'skybridge';
 
 // Skybridge constants
-export const SKYBRIDGE_PLATFORM_HEIGHT = 6.0;
+export const SKYBRIDGE_PLATFORM_HEIGHT = 10.0;
 export const SKYBRIDGE_PLATFORM_DEPTH = 70; // z: +30 to +100
 export const SKYBRIDGE_PLATFORM_HALF_WIDTH = 50; // x: -50 to +50
 export const SKYBRIDGE_RAMP_LENGTH = 20; // z: +10 to +30
@@ -22,7 +22,7 @@ const RIGHT_RAMP_X_MIN = 30;
 const RIGHT_RAMP_X_MAX = 50;
 
 // Threshold for deciding if a bike is "on top" vs "under" the platform
-const LEVEL_THRESHOLD = 3.0;
+const LEVEL_THRESHOLD = 1.5;
 
 function getSkybridgeHeight(x: number, z: number, currentY: number): number {
   // Check if on left ramp
@@ -83,6 +83,27 @@ export function getTerrainHeight(mapId: MapId, x: number, z: number, currentY: n
  */
 export function getSpawnTerrainHeight(mapId: MapId, x: number, z: number): number {
   return getTerrainHeight(mapId, x, z, 999);
+}
+
+/**
+ * Get terrain ceiling at a position (underside of platform).
+ * Returns Infinity if there is no ceiling above.
+ */
+export function getTerrainCeiling(mapId: MapId, x: number, z: number, currentY: number): number {
+  if (mapId !== 'skybridge') return Infinity;
+
+  // Only the flat platform region has a ceiling (not ramps)
+  if (
+    x >= PLATFORM_X_MIN && x <= PLATFORM_X_MAX &&
+    z >= PLATFORM_Z_FRONT && z <= PLATFORM_Z_BACK
+  ) {
+    // Bike is underneath the platform
+    if (currentY < SKYBRIDGE_PLATFORM_HEIGHT - LEVEL_THRESHOLD) {
+      return SKYBRIDGE_PLATFORM_HEIGHT - 0.5; // underside of the platform box
+    }
+  }
+
+  return Infinity;
 }
 
 export interface MapInfo {
