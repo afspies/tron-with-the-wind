@@ -1,4 +1,4 @@
-import { PLAYER_COLORS, PLAYER_NAMES, BOOST_MAX, DOUBLE_JUMP_COOLDOWN } from '@tron/shared';
+import { PLAYER_COLORS, PLAYER_NAMES } from '@tron/shared';
 import { Bike } from '../game/Bike';
 import { PlayerHUD } from './PlayerHUD';
 
@@ -47,12 +47,6 @@ export class HUD {
         <span>${displayName}${youTag}</span>
         <span class="hud-drift" id="hud-drift-${i}" style="display:none;color:#ffaa33;font-size:0.7em;margin-left:4px;">DRIFT</span>
         <span class="hud-status" id="hud-status-${i}"></span>
-        <div class="hud-boost-bar">
-          <div class="hud-boost-fill" id="hud-boost-${i}" style="background:${PLAYER_COLORS[i]};width:100%"></div>
-        </div>
-        <div class="hud-dj-bar">
-          <div class="hud-dj-fill" id="hud-dj-${i}"></div>
-        </div>
       `;
       this.playersEl.appendChild(row);
     }
@@ -70,11 +64,6 @@ export class HUD {
       const el = document.getElementById(`hud-p${i}`);
       if (el) {
         el.className = bikes[i].alive ? 'hud-player' : 'hud-player dead';
-      }
-      const boostFill = document.getElementById(`hud-boost-${i}`);
-      if (boostFill) {
-        const pct = (bikes[i].boostMeter / BOOST_MAX) * 100;
-        boostFill.style.width = `${pct}%`;
       }
       const statusEl = document.getElementById(`hud-status-${i}`);
       if (statusEl) {
@@ -95,15 +84,6 @@ export class HUD {
       const driftEl = document.getElementById(`hud-drift-${i}`);
       if (driftEl) {
         driftEl.style.display = bikes[i].drifting ? 'inline' : 'none';
-      }
-      // Double-jump cooldown bar
-      const djFill = document.getElementById(`hud-dj-${i}`);
-      if (djFill) {
-        const ready = bikes[i].doubleJumpReady;
-        const cooldown = bikes[i].doubleJumpCooldown;
-        const pct = ready ? 100 : ((DOUBLE_JUMP_COOLDOWN - cooldown) / DOUBLE_JUMP_COOLDOWN) * 100;
-        djFill.style.width = `${pct}%`;
-        djFill.style.opacity = ready ? '1' : '0.5';
       }
     }
     this.roundEl.textContent = `Round ${round} · First to ${roundsToWin}`;

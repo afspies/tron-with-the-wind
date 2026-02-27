@@ -339,50 +339,26 @@
       left: 16px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 5px;
+      background: rgba(10,5,20,0.55);
+      border: 1px solid rgba(153,102,204,0.2);
+      border-radius: 8px;
+      padding: 8px 12px;
     }
     .hud-player {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       opacity: 0.9;
     }
     .hud-player.dead { opacity: 0.4; text-decoration: line-through; }
-    .hud-boost-bar {
-      width: 50px;
-      height: 6px;
-      background: rgba(255,255,255,0.15);
-      border-radius: 3px;
-      overflow: hidden;
-      margin-left: 4px;
-    }
-    .hud-boost-fill {
-      height: 100%;
-      border-radius: 3px;
-      transition: width 0.1s linear;
-    }
-    .hud-dj-bar {
-      width: 50px;
-      height: 4px;
-      background: rgba(0,221,255,0.15);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-left: 4px;
-    }
-    .hud-dj-fill {
-      height: 100%;
-      width: 100%;
-      background: #00ddff;
-      border-radius: 2px;
-      transition: width 0.3s linear;
-      box-shadow: 0 0 4px rgba(0,221,255,0.5);
-    }
     .hud-dot {
-      width: 12px;
-      height: 12px;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
       box-shadow: 0 0 8px currentColor;
+      flex-shrink: 0;
     }
     .hud-status {
       font-size: 1.1rem;
@@ -555,15 +531,15 @@
     /* Mobile HUD repositioning */
     .touch-device #hud-local-status {
       bottom: auto;
-      top: 3vmin;
-      right: 3vmin;
+      top: 220px;
+      right: 16px;
     }
     .touch-device .boost-dial {
-      width: 12vmin;
-      height: 12vmin;
+      width: 14vmin;
+      height: 14vmin;
     }
     .touch-device .jump-bar {
-      height: 10vmin;
+      height: 12vmin;
     }
     .touch-device #hud-powerups {
       top: 20vmin;
