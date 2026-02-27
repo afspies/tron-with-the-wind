@@ -96,7 +96,7 @@ export class Bike {
   visualAngle: number;
   private visualInitialized = false;
 
-  private netBuffer: Array<{ x: number; z: number; y: number; angle: number; vy: number; grounded: boolean; pitch: number; flying: boolean; tick: number; time: number }> = [];
+  private netBuffer: Array<{ x: number; z: number; y: number; angle: number; vy: number; grounded: boolean; pitch: number; flying: boolean; surfaceType: SurfaceType; forwardX: number; forwardY: number; forwardZ: number; tick: number; time: number }> = [];
   private bodyMesh: THREE.Mesh;
   private bikeLight: THREE.PointLight;
   private scene: THREE.Scene;
@@ -210,6 +210,9 @@ export class Bike {
       : TURN_RATE;
     if (input.left) this.angle += turnRate * dt;
     if (input.right) this.angle -= turnRate * dt;
+
+    // Keep forward in sync with angle for mesh orientation during client prediction
+    this.forward = { x: Math.sin(this.angle), y: 0, z: Math.cos(this.angle) };
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;
@@ -596,7 +599,8 @@ export class Bike {
       this.targetQuaternion.setFromRotationMatrix(mat);
     } else {
       // Air: use euler rotation (angle around Y)
-      this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.visualAngle, 0));
+      // Add PI to match the surface basis convention (model's -Z = forward)
+      this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.visualAngle + Math.PI, 0));
     }
 
     this.currentQuaternion.slerp(this.targetQuaternion, 1 - Math.exp(-10 * dt));
@@ -711,6 +715,10 @@ export class Bike {
       x: state.x, z: state.z, y: state.y, angle: state.angle,
       vy: state.vy, grounded: state.grounded,
       pitch: state.pitch ?? 0, flying: state.flying ?? false,
+      surfaceType: (state.surfaceType ?? SurfaceType.Floor) as SurfaceType,
+      forwardX: state.forwardX ?? Math.sin(state.angle),
+      forwardY: state.forwardY ?? 0,
+      forwardZ: state.forwardZ ?? Math.cos(state.angle),
       tick: state.tick,
       time: performance.now(),
     });
@@ -776,6 +784,9 @@ export class Bike {
         this.grounded = t < 0.5 ? a.grounded : b.grounded;
         this.pitch = a.pitch + (b.pitch - a.pitch) * t;
         this.flying = t < 0.5 ? a.flying : b.flying;
+        const src = t < 0.5 ? a : b;
+        this.surfaceType = src.surfaceType;
+        this.forward = { x: src.forwardX, y: src.forwardY, z: src.forwardZ };
       } else if (renderTick > b.tick) {
         // Extrapolation: renderTick ahead of buffer, no newer state yet.
         // Use boost-aware speed; cap at 1 tick to avoid overshooting turns.
@@ -792,6 +803,8 @@ export class Bike {
         this.grounded = b.grounded;
         this.pitch = b.pitch;
         this.flying = b.flying;
+        this.surfaceType = b.surfaceType;
+        this.forward = { x: b.forwardX, y: b.forwardY, z: b.forwardZ };
       } else {
         // renderTick behind buffer — snap to earliest known state
         this.position.x = a.x;
@@ -802,6 +815,8 @@ export class Bike {
         this.grounded = a.grounded;
         this.pitch = a.pitch;
         this.flying = a.flying;
+        this.surfaceType = a.surfaceType;
+        this.forward = { x: a.forwardX, y: a.forwardY, z: a.forwardZ };
       }
     } else if (this.netBuffer.length >= 2) {
       // Fallback: time-based interpolation when renderTick not available
@@ -820,6 +835,9 @@ export class Bike {
 
       this.pitch = a.pitch + (b.pitch - a.pitch) * tClamped;
       this.flying = tClamped < 0.5 ? a.flying : b.flying;
+      const src = tClamped < 0.5 ? a : b;
+      this.surfaceType = src.surfaceType;
+      this.forward = { x: src.forwardX, y: src.forwardY, z: src.forwardZ };
 
       if (t >= 1.0 && this.netBuffer.length >= 3) {
         this.netBuffer.shift();

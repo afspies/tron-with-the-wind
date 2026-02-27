@@ -231,12 +231,15 @@ export class SimBike {
     this.surfaceType = newSurfInfo.surfaceType;
 
     // Update forward from velocity (projected onto new surface plane)
-    const projVel = projectOntoSurfacePlane(
-      { x: this.vx, y: this.vy, z: this.vz },
-      this.surfaceNormal,
-    );
-    if (projVel.x !== 0 || projVel.y !== 0 || projVel.z !== 0) {
-      this.forward = projVel;
+    // Skip during drift so heading can diverge from velocity direction
+    if (!this.drifting) {
+      const projVel = projectOntoSurfacePlane(
+        { x: this.vx, y: this.vy, z: this.vz },
+        this.surfaceNormal,
+      );
+      if (projVel.x !== 0 || projVel.y !== 0 || projVel.z !== 0) {
+        this.forward = projVel;
+      }
     }
 
     // Project velocity onto the surface plane (remove any normal component from constraint)
