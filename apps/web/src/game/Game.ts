@@ -58,6 +58,9 @@ export class Game {
   private chat: Chat;
   private minimap: Minimap;
 
+  // Player names (indexed by bike order)
+  private names: string[] = [];
+
   constructor() {
     this.gameCamera = new GameCamera();
     this.ctx = createSceneContext(this.gameCamera.camera);
@@ -88,6 +91,7 @@ export class Game {
 
     this.lobby = new Lobby(
       this.colyseus,
+      () => this.menu.getNickname(),
       () => this.handleLobbyStart(),
       () => {
         // Leave lobby — back to menu
@@ -204,6 +208,7 @@ export class Game {
           this.round.roundNumber,
           () => {}, // Server controls round advancement
           true, // isOnlineClient
+          this.names,
         );
         break;
       }
@@ -242,6 +247,7 @@ export class Game {
             this.state = 'MENU';
             this.menu.show();
           },
+          this.names,
         );
         break;
       }
@@ -292,9 +298,12 @@ export class Game {
     this.gameCamera.setLocalBikeIndex(localBikeIdx >= 0 ? localBikeIdx : 0);
     this.gameCamera.setMode('chase');
 
+    // Build names
+    this.names = this.buildNames();
+
     // Chat
     this.chat.show(
-      PLAYER_NAMES[localSlot],
+      this.names[localBikeIdx >= 0 ? localBikeIdx : 0],
       PLAYER_COLORS[localSlot],
       (msg) => this.colyseus.sendChat(msg.text),
     );
@@ -306,6 +315,7 @@ export class Game {
       serverState.roundsToWin,
       localBikeIdx >= 0 ? localBikeIdx : undefined,
       true,
+      this.names,
     );
     this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
     this.touchControls.show();
@@ -331,6 +341,7 @@ export class Game {
       this.config.roundsToWin,
       localBikeIdx >= 0 ? localBikeIdx : undefined,
       true,
+      this.names,
     );
     this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
     this.touchControls.show();
@@ -343,6 +354,30 @@ export class Game {
     if (!this.colyseus.isHost) return;
     this.colyseus.sendStartGame();
     // Server will change phase to 'countdown', triggering initOnlineGame via onStateChange
+  }
+
+  /** Build names array from server state (online) or nickname + defaults (quickplay). */
+  private buildNames(): string[] {
+    const names: string[] = [];
+    if (this.config?.mode === 'online') {
+      const lobbyState = this.colyseus.getLobbyState();
+      const nameBySlot = new Map<number, string>();
+      for (const p of lobbyState.players) {
+        if (p.name) nameBySlot.set(p.slot, p.name);
+      }
+      for (let i = 0; i < this.bikes.length; i++) {
+        const slot = this.bikes[i].playerIndex;
+        names.push(nameBySlot.get(slot) || PLAYER_NAMES[slot]);
+      }
+    } else {
+      // Quickplay: slot 0 = local human
+      const nickname = this.menu.getNickname();
+      for (let i = 0; i < this.bikes.length; i++) {
+        const slot = this.bikes[i].playerIndex;
+        names.push(slot === 0 && nickname ? nickname : PLAYER_NAMES[slot]);
+      }
+    }
+    return names;
   }
 
   // --- Game Start (Quickplay) ---
@@ -420,11 +455,14 @@ export class Game {
 
     const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config.localSlot ?? 0));
 
+    this.names = this.buildNames();
     this.hud.show(
       this.bikes.length,
       this.round.roundNumber,
       this.config.roundsToWin,
       localBikeIdx >= 0 ? localBikeIdx : 0,
+      false,
+      this.names,
     );
 
     // Show minimap
@@ -646,6 +684,7 @@ export class Game {
             this.state = 'MENU';
             this.menu.show();
           },
+          this.names,
         );
       }, 1500);
     } else {
@@ -656,6 +695,8 @@ export class Game {
           this.round.scores,
           this.round.roundNumber,
           () => this.startRound(),
+          false,
+          this.names,
         );
       }, 1500);
     }

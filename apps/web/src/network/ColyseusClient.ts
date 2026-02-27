@@ -63,7 +63,7 @@ export class ColyseusClient {
     this.client = new Client(getServerUrl());
   }
 
-  async createRoom(options?: { aiCount?: number; aiDifficulty?: AIDifficulty; roundsToWin?: number }): Promise<string> {
+  async createRoom(options?: { aiCount?: number; aiDifficulty?: AIDifficulty; roundsToWin?: number; name?: string }): Promise<string> {
     this.roomCode = generateCode();
     this.room = await this.client.create('tron', {
       roomCode: this.roomCode,
