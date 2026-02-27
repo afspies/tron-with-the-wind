@@ -21,6 +21,27 @@ import { Chat } from '../ui/Chat';
 import { Minimap } from '../ui/Minimap';
 import { PowerUpManager } from './PowerUpManager';
 
+/** Build an applyNetState snapshot from a Colyseus schema bike + room tick. */
+function netStateFromSchema(sb: any, tick: number): {
+  x: number; z: number; y: number; angle: number;
+  alive: boolean; vy: number; grounded: boolean;
+  boostMeter: number; boosting: boolean;
+  invulnerable: boolean; invulnerableTimer: number;
+  doubleJumpCooldown: number;
+  drifting: boolean; velocityAngle: number;
+  pitch: number; flying: boolean; tick: number;
+} {
+  return {
+    x: sb.x, z: sb.z, y: sb.y, angle: sb.angle,
+    alive: sb.alive, vy: sb.vy, grounded: sb.grounded,
+    boostMeter: sb.boostMeter, boosting: sb.boosting,
+    invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
+    doubleJumpCooldown: sb.doubleJumpCooldown,
+    drifting: sb.drifting, velocityAngle: sb.velocityAngle,
+    pitch: sb.pitch, flying: sb.flying, tick,
+  };
+}
+
 export class Game {
   private ctx: SceneContext;
   private gameCamera: GameCamera;
@@ -261,6 +282,7 @@ export class Game {
     this.menu.hide();
     this.scoreboard.hideAll();
     this.cleanupBikes();
+    this.lastServerTick = 0;
 
     const localSlot = this.colyseus.getLocalSlot();
     const totalPlayers = serverState.bikes.length;
@@ -613,30 +635,18 @@ export class Game {
         // LOCAL: predict movement, reconcile on server update
         bike.update(dt, input, this.trails, true);
         if (newTick) {
-          bike.applyNetState({
-            x: sb.x, z: sb.z, y: sb.y, angle: sb.angle,
-            alive: sb.alive, vy: sb.vy, grounded: sb.grounded,
-            boostMeter: sb.boostMeter, boosting: sb.boosting,
-            invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
-            doubleJumpCooldown: sb.doubleJumpCooldown,
-            drifting: sb.drifting, velocityAngle: sb.velocityAngle,
-            pitch: sb.pitch, flying: sb.flying, tick: roomState.tick,
-          });
+          bike.applyNetState(netStateFromSchema(sb, roomState.tick));
         }
-        // Trail still synced from server (authoritative)
-        this.syncTrailFromServer(bike, sb);
+        // Trail: local prediction adds points via update(); only sync from
+        // server when the server trail grows (append-only) to avoid snapping
+        // the locally-predicted trail backwards every tick.
+        if (sb.trail.length > bike.trail.points.length) {
+          this.syncTrailFromServer(bike, sb);
+        }
       } else {
         // REMOTE: buffer states, interpolate
         if (newTick) {
-          bike.applyNetState({
-            x: sb.x, z: sb.z, y: sb.y, angle: sb.angle,
-            alive: sb.alive, vy: sb.vy, grounded: sb.grounded,
-            boostMeter: sb.boostMeter, boosting: sb.boosting,
-            invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
-            doubleJumpCooldown: sb.doubleJumpCooldown,
-            drifting: sb.drifting, velocityAngle: sb.velocityAngle,
-            pitch: sb.pitch, flying: sb.flying, tick: roomState.tick,
-          });
+          bike.applyNetState(netStateFromSchema(sb, roomState.tick));
           this.syncTrailFromServer(bike, sb);
         }
         bike.deadReckon(dt, roomState.tick - 1); // render 1 tick behind
