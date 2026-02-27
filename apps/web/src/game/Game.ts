@@ -19,6 +19,7 @@ import { Lobby } from '../ui/Lobby';
 import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
 import { Minimap } from '../ui/Minimap';
+import { Settings } from '../ui/Settings';
 import { PowerUpManager } from './PowerUpManager';
 
 export class Game {
@@ -49,6 +50,7 @@ export class Game {
   private powerUpManager!: PowerUpManager;
 
   // UI
+  private settings: Settings;
   private menu: Menu;
   private hud: HUD;
   private scoreboard: Scoreboard;
@@ -80,11 +82,20 @@ export class Game {
     // Network
     this.colyseus = new ColyseusClient();
 
+    this.settings = new Settings(() => {
+      this.settings.hide();
+      this.menu.show();
+    });
+
     this.menu = new Menu(
       (config) => this.startGame(config),
       () => {
         // Online button clicked — show create/join
         this.lobby.showCreateJoin();
+      },
+      () => {
+        // Settings button clicked
+        this.settings.show();
       },
     );
 

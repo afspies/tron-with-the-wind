@@ -4,7 +4,7 @@ import { NO_INPUT } from '@tron/shared';
 export type { PlayerInput };
 export { NO_INPUT };
 
-interface KeyMapping {
+export interface KeyMapping {
   left: string[];
   right: string[];
   jump: string[];
@@ -14,11 +14,46 @@ interface KeyMapping {
   pitchDown: string[];
 }
 
-const KEY_MAPS: KeyMapping[] = [
+export const DEFAULT_KEY_MAPS: KeyMapping[] = [
   { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space', 'ArrowUp'], boost: ['ShiftLeft', 'ArrowDown'], drift: ['AltLeft', 'AltRight'], pitchUp: ['KeyS'], pitchDown: ['KeyW'] },
   { left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Slash'], boost: ['ShiftRight'], drift: ['Period'], pitchUp: [], pitchDown: [] },
   { left: ['KeyJ'], right: ['KeyL'], jump: ['KeyH'], boost: ['KeyU'], drift: ['KeyK'], pitchUp: [], pitchDown: [] },
   { left: ['Numpad4'], right: ['Numpad6'], jump: ['Numpad0'], boost: ['Numpad1'], drift: ['Numpad2'], pitchUp: [], pitchDown: [] },
+];
+
+const KEYBINDINGS_STORAGE_KEY = 'tron_keybindings';
+
+function loadCustomBindings(): KeyMapping | null {
+  try {
+    const raw = localStorage.getItem(KEYBINDINGS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Validate shape
+    const actions: (keyof KeyMapping)[] = ['left', 'right', 'jump', 'boost', 'drift', 'pitchUp', 'pitchDown'];
+    for (const action of actions) {
+      if (!Array.isArray(parsed[action])) return null;
+    }
+    return parsed as KeyMapping;
+  } catch {
+    return null;
+  }
+}
+
+function deepCopyMapping(m: KeyMapping): KeyMapping {
+  return {
+    left: [...m.left],
+    right: [...m.right],
+    jump: [...m.jump],
+    boost: [...m.boost],
+    drift: [...m.drift],
+    pitchUp: [...m.pitchUp],
+    pitchDown: [...m.pitchDown],
+  };
+}
+
+const keyMaps: KeyMapping[] = [
+  loadCustomBindings() ?? deepCopyMapping(DEFAULT_KEY_MAPS[0]),
+  ...DEFAULT_KEY_MAPS.slice(1),
 ];
 
 export class InputManager {
@@ -45,8 +80,22 @@ export class InputManager {
     });
   }
 
+  static getPlayer0Bindings(): KeyMapping {
+    return keyMaps[0];
+  }
+
+  static setPlayer0Bindings(mapping: KeyMapping): void {
+    keyMaps[0] = mapping;
+    localStorage.setItem(KEYBINDINGS_STORAGE_KEY, JSON.stringify(mapping));
+  }
+
+  static resetPlayer0Bindings(): void {
+    keyMaps[0] = deepCopyMapping(DEFAULT_KEY_MAPS[0]);
+    localStorage.removeItem(KEYBINDINGS_STORAGE_KEY);
+  }
+
   getInput(playerIndex: number): PlayerInput {
-    const map = KEY_MAPS[playerIndex];
+    const map = keyMaps[playerIndex];
     if (!map) return NO_INPUT;
 
     const pressed = (action: keyof KeyMapping): boolean =>
@@ -76,7 +125,7 @@ export class InputManager {
   }
 
   consumeJump(playerIndex: number): void {
-    const map = KEY_MAPS[playerIndex];
+    const map = keyMaps[playerIndex];
     if (map) map.jump.forEach((k) => this.keys.delete(k));
   }
 }
