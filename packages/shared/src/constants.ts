@@ -1,7 +1,8 @@
 export const MAX_PLAYERS = 4;
 export const ARENA_SIZE = 200;
 export const ARENA_HALF = ARENA_SIZE / 2;
-export const WALL_HEIGHT = 6;
+export const CEILING_HEIGHT = 30;
+export const WALL_HEIGHT = CEILING_HEIGHT;
 
 export const BIKE_SPEED = 30;
 export const TURN_RATE = 3; // rad/s
@@ -66,6 +67,12 @@ export const FLIGHT_LANDING_MAX_PITCH = 0.79;  // ~45°, crash if landing steepe
 
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
+
+// Wall driving
+export const WALL_MIN_SPEED = 8;
+export const WALL_MAX_SPEED = 60;
+export const CEILING_RESTITUTION = 0.5;
+export const WALL_ATTACH_MIN_VEL = 5;
 
 // Drift
 export const DRIFT_TURN_MULTIPLIER = 1.8;

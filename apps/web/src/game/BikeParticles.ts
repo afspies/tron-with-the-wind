@@ -27,7 +27,7 @@ export class TrailParticles {
     scene.add(this.points);
   }
 
-  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean, flying = false): void {
+  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean, flying = false, forward?: { x: number; y: number; z: number }, surfaceNormal?: { x: number; y: number; z: number }): void {
     const posArr = this.positions;
     const spdArr = this.speeds;
     const lifeArr = this.lifetimes;
@@ -44,25 +44,33 @@ export class TrailParticles {
 
     // Spawn new at bike rear
     if (flying || grounded || bikeY < 1) {
+      // Use 3D forward if available, otherwise derive from angle
+      const fwdX = forward ? forward.x : Math.sin(bikeAngle);
+      const fwdY = forward ? forward.y : 0;
+      const fwdZ = forward ? forward.z : Math.cos(bikeAngle);
+      const nrmX = surfaceNormal ? surfaceNormal.x : 0;
+      const nrmY = surfaceNormal ? surfaceNormal.y : 1;
+      const nrmZ = surfaceNormal ? surfaceNormal.z : 0;
+
       for (let i = 0; i < this.maxParticles; i++) {
         if (lifeArr[i] <= 0) {
           const rear = -1.0;
-          const rx = bikeX - Math.sin(bikeAngle) * rear;
-          const rz = bikeZ - Math.cos(bikeAngle) * rear;
+          const rx = bikeX + fwdX * rear;
+          const ry = bikeY + fwdY * rear;
+          const rz = bikeZ + fwdZ * rear;
           posArr[i * 3] = rx + (Math.random() - 0.5) * 0.5;
+          posArr[i * 3 + 1] = ry + (Math.random() - 0.5) * 0.5;
           posArr[i * 3 + 2] = rz + (Math.random() - 0.5) * 0.5;
           if (flying) {
-            // Exhaust plume: spawn behind + below, high velocity away
-            posArr[i * 3 + 1] = bikeY - 0.3 + (Math.random() - 0.5) * 0.5;
-            spdArr[i * 3] = -Math.sin(bikeAngle) * 5 + (Math.random() - 0.5) * 2;
+            spdArr[i * 3] = -fwdX * 5 + (Math.random() - 0.5) * 2;
             spdArr[i * 3 + 1] = -3 + Math.random() * 2;
-            spdArr[i * 3 + 2] = -Math.cos(bikeAngle) * 5 + (Math.random() - 0.5) * 2;
+            spdArr[i * 3 + 2] = -fwdZ * 5 + (Math.random() - 0.5) * 2;
             lifeArr[i] = 0.2 + Math.random() * 0.4;
           } else {
-            posArr[i * 3 + 1] = Math.random() * TRAIL_HEIGHT;
-            spdArr[i * 3] = (Math.random() - 0.5) * 2;
-            spdArr[i * 3 + 1] = Math.random() * 3;
-            spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2;
+            // Particles drift along surface normal
+            spdArr[i * 3] = nrmX * 3 + (Math.random() - 0.5) * 2;
+            spdArr[i * 3 + 1] = nrmY * 3 + (Math.random() - 0.5) * 2;
+            spdArr[i * 3 + 2] = nrmZ * 3 + (Math.random() - 0.5) * 2;
             lifeArr[i] = 0.3 + Math.random() * 0.5;
           }
           break; // one per frame

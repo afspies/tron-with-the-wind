@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TRAIL_HEIGHT, TRAIL_SAMPLE_DISTANCE, TRAIL_RAMP_SEGMENTS } from '@tron/shared';
+import { TRAIL_HEIGHT, TRAIL_SAMPLE_DISTANCE, TRAIL_RAMP_SEGMENTS, ARENA_HALF } from '@tron/shared';
 import type { TrailPoint } from '@tron/shared';
 
 export class Trail {
@@ -37,8 +37,9 @@ export class Trail {
 
     if (this.lastSamplePos) {
       const dx = x - this.lastSamplePos.x;
+      const dy = y - this.lastSamplePos.y;
       const dz = z - this.lastSamplePos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (dist < TRAIL_SAMPLE_DISTANCE) return;
     }
 
@@ -90,26 +91,65 @@ export class Trail {
         continue;
       }
 
-      const dx = p2.x - p1.x;
-      const dz = p2.z - p1.z;
-      const len = Math.sqrt(dx * dx + dz * dz);
-      const nx = -dz / (len || 1);
-      const nz = dx / (len || 1);
-
       // Height ramp for segments near the end (closest to bike)
       const distFromEnd1 = totalSegs - i;
       const distFromEnd2 = totalSegs - (i + 1);
       const h1 = distFromEnd1 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd1 / TRAIL_RAMP_SEGMENTS);
       const h2 = distFromEnd2 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd2 / TRAIL_RAMP_SEGMENTS);
 
-      const verts = [
-        p1.x, p1.y, p1.z,
-        p1.x, p1.y + h1, p1.z,
-        p2.x, p2.y + h2, p2.z,
-        p1.x, p1.y, p1.z,
-        p2.x, p2.y + h2, p2.z,
-        p2.x, p2.y, p2.z,
-      ];
+      // Determine if this segment is on a wall (infer from position at wall boundary)
+      const wallMargin = 1.5;
+      const isOnXWall = Math.abs(p1.x) >= ARENA_HALF - wallMargin && Math.abs(p2.x) >= ARENA_HALF - wallMargin && p1.y > 0.5;
+      const isOnZWall = Math.abs(p1.z) >= ARENA_HALF - wallMargin && Math.abs(p2.z) >= ARENA_HALF - wallMargin && p1.y > 0.5;
+
+      let verts: number[];
+      let nx: number, ny: number, nz: number;
+
+      if (isOnXWall) {
+        // Trail on X wall: extrude inward along X (toward center)
+        const sign = p1.x > 0 ? -1 : 1; // inward direction
+        nx = sign;
+        ny = 0;
+        nz = 0;
+        verts = [
+          p1.x, p1.y, p1.z,
+          p1.x + sign * h1, p1.y, p1.z,
+          p2.x + sign * h2, p2.y, p2.z,
+          p1.x, p1.y, p1.z,
+          p2.x + sign * h2, p2.y, p2.z,
+          p2.x, p2.y, p2.z,
+        ];
+      } else if (isOnZWall) {
+        // Trail on Z wall: extrude inward along Z
+        const sign = p1.z > 0 ? -1 : 1;
+        nx = 0;
+        ny = 0;
+        nz = sign;
+        verts = [
+          p1.x, p1.y, p1.z,
+          p1.x, p1.y, p1.z + sign * h1,
+          p2.x, p2.y, p2.z + sign * h2,
+          p1.x, p1.y, p1.z,
+          p2.x, p2.y, p2.z + sign * h2,
+          p2.x, p2.y, p2.z,
+        ];
+      } else {
+        // Floor / air trail: extrude upward (original behavior)
+        const dx = p2.x - p1.x;
+        const dz = p2.z - p1.z;
+        const len = Math.sqrt(dx * dx + dz * dz);
+        nx = -dz / (len || 1);
+        ny = 0;
+        nz = dx / (len || 1);
+        verts = [
+          p1.x, p1.y, p1.z,
+          p1.x, p1.y + h1, p1.z,
+          p2.x, p2.y + h2, p2.z,
+          p1.x, p1.y, p1.z,
+          p2.x, p2.y + h2, p2.z,
+          p2.x, p2.y, p2.z,
+        ];
+      }
 
       for (let j = 0; j < 18; j++) {
         posArr[baseIdx + j] = verts[j];
@@ -117,7 +157,7 @@ export class Trail {
 
       for (let j = 0; j < 6; j++) {
         normArr[baseIdx + j * 3] = nx;
-        normArr[baseIdx + j * 3 + 1] = 0;
+        normArr[baseIdx + j * 3 + 1] = ny;
         normArr[baseIdx + j * 3 + 2] = nz;
       }
     }

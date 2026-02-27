@@ -1,5 +1,5 @@
-import type { Vec2 } from '@tron/shared';
-import { ARENA_HALF, TRAIL_HEIGHT, TRAIL_SKIP_SEGMENTS, BIKE_COLLISION_HEIGHT } from '@tron/shared';
+import type { Vec2, Vec3 } from '@tron/shared';
+import { SurfaceType, ARENA_HALF, TRAIL_HEIGHT, TRAIL_SKIP_SEGMENTS, BIKE_COLLISION_HEIGHT } from '@tron/shared';
 import type { SimTrail } from './SimTrail';
 
 export function lineSegmentsIntersect(
@@ -92,4 +92,71 @@ export function checkTrailCollisionDetailed(
 
 export function checkWallCollision(x: number, z: number): boolean {
   return Math.abs(x) > ARENA_HALF || Math.abs(z) > ARENA_HALF;
+}
+
+/**
+ * Project a 3D point to 2D coordinates in a wall plane.
+ * X-walls (WallXPos/WallXNeg): project to (z, y)
+ * Z-walls (WallZPos/WallZNeg): project to (x, y)
+ */
+function projectToWallPlane(pos: Vec3, surfaceType: SurfaceType): Vec2 {
+  switch (surfaceType) {
+    case SurfaceType.WallXPos:
+    case SurfaceType.WallXNeg:
+      return { x: pos.z, z: pos.y }; // Using Vec2's x,z as the 2D coordinates
+    case SurfaceType.WallZPos:
+    case SurfaceType.WallZNeg:
+      return { x: pos.x, z: pos.y };
+    default:
+      return { x: pos.x, z: pos.z };
+  }
+}
+
+/** Check if a trail point is on the given wall surface */
+function isTrailPointOnWall(pt: { x: number; y: number; z: number }, surfaceType: SurfaceType): boolean {
+  const margin = 1.5;
+  switch (surfaceType) {
+    case SurfaceType.WallXPos: return pt.x >= ARENA_HALF - margin && pt.y > 0.5;
+    case SurfaceType.WallXNeg: return pt.x <= -ARENA_HALF + margin && pt.y > 0.5;
+    case SurfaceType.WallZPos: return pt.z >= ARENA_HALF - margin && pt.y > 0.5;
+    case SurfaceType.WallZNeg: return pt.z <= -ARENA_HALF + margin && pt.y > 0.5;
+    default: return false;
+  }
+}
+
+/**
+ * Check trail collision for a bike on a wall.
+ * Projects positions and trail points to 2D in the wall plane.
+ */
+export function checkTrailCollisionOnWall(
+  oldPos3D: Vec3,
+  newPos3D: Vec3,
+  surfaceType: SurfaceType,
+  trails: SimTrail[],
+  ownTrailIndex: number,
+): TrailHitInfo | null {
+  const oldPos2D = projectToWallPlane(oldPos3D, surfaceType);
+  const newPos2D = projectToWallPlane(newPos3D, surfaceType);
+
+  for (let t = 0; t < trails.length; t++) {
+    const trail = trails[t];
+    const pts = trail.points;
+    const skipEnd = t === ownTrailIndex ? TRAIL_SKIP_SEGMENTS : 0;
+    const endIdx = pts.length - 1 - skipEnd;
+
+    for (let i = 0; i < endIdx; i++) {
+      if (isNaN(pts[i].x) || isNaN(pts[i + 1].x)) continue;
+
+      // Only test trail segments that are on the same wall
+      if (!isTrailPointOnWall(pts[i], surfaceType) && !isTrailPointOnWall(pts[i + 1], surfaceType)) continue;
+
+      const seg1 = projectToWallPlane(pts[i] as Vec3, surfaceType);
+      const seg2 = projectToWallPlane(pts[i + 1] as Vec3, surfaceType);
+
+      if (lineSegmentsIntersect(oldPos2D, newPos2D, seg1, seg2)) {
+        return { trailIndex: t, contactX: pts[i].x, contactZ: pts[i].z };
+      }
+    }
+  }
+  return null;
 }

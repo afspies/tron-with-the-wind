@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT } from '@tron/shared';
+import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT, CEILING_HEIGHT } from '@tron/shared';
 
 export class Arena {
   ground: THREE.Mesh;
@@ -100,6 +100,47 @@ export class Arena {
       const orbLight = new THREE.PointLight(0xffd700, 3, 20);
       orbLight.position.set(cx, WALL_HEIGHT + 1.5, cz);
       scene.add(orbLight);
+    }
+
+    // Ceiling plane (semi-transparent)
+    const ceilingGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE);
+    const ceilingMat = new THREE.MeshStandardMaterial({
+      color: 0x2a1a3a,
+      emissive: 0x1a0a2a,
+      emissiveIntensity: 0.3,
+      transparent: true,
+      opacity: 0.15,
+      side: THREE.DoubleSide,
+    });
+    const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+    ceiling.rotation.x = -Math.PI / 2;
+    ceiling.position.y = CEILING_HEIGHT;
+    scene.add(ceiling);
+
+    // Ceiling grid
+    const ceilingGrid = new THREE.GridHelper(ARENA_SIZE, 20, 0x4a2a6a, 0x4a2a6a);
+    ceilingGrid.position.y = CEILING_HEIGHT;
+    (ceilingGrid.material as THREE.Material).transparent = true;
+    (ceilingGrid.material as THREE.Material).opacity = 0.15;
+    scene.add(ceilingGrid);
+
+    // Wall grid overlays for spatial reference
+    for (const cfg of wallConfigs) {
+      const wallGrid = new THREE.GridHelper(ARENA_SIZE, 20, 0x3a2a5a, 0x3a2a5a);
+      (wallGrid.material as THREE.Material).transparent = true;
+      (wallGrid.material as THREE.Material).opacity = 0.15;
+
+      // Rotate grid to align with wall plane
+      if (cfg.rotY === 0) {
+        // Z-axis wall: rotate to face along Z
+        wallGrid.rotation.x = Math.PI / 2;
+        wallGrid.position.set(cfg.x, WALL_HEIGHT / 2, cfg.z);
+      } else {
+        // X-axis wall: rotate to face along X
+        wallGrid.rotation.z = Math.PI / 2;
+        wallGrid.position.set(cfg.x, WALL_HEIGHT / 2, cfg.z);
+      }
+      scene.add(wallGrid);
     }
   }
 }

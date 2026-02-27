@@ -1,9 +1,17 @@
 export { SimBike } from './SimBike';
+export {
+  rotateVectorAroundAxis,
+  projectOntoSurfacePlane,
+  remapForwardToWall,
+  remapForwardToFloor,
+  getWallSurfaceFromPosition,
+} from './Surface';
 export { SimTrail } from './SimTrail';
 export {
   lineSegmentsIntersect,
   checkTrailCollision,
   checkTrailCollisionDetailed,
+  checkTrailCollisionOnWall,
   checkWallCollision,
   type TrailHitInfo,
 } from './Collision';

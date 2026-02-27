@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SurfaceType, getSurfaceNormal } from '@tron/shared';
 import { Bike } from '../game/Bike';
 
 const CHASE_DISTANCE = 12;
@@ -34,6 +35,7 @@ export class GameCamera {
   private driftBlend = 0;       // 0 = normal, 1 = fully drifting (smooth transition)
   private keys = new Set<string>();
   private viewTogglePressed = false;  // edge-detect for X toggle
+  private cameraUp = new THREE.Vector3(0, 1, 0); // lerps toward surfaceNormal
 
   constructor() {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -132,48 +134,90 @@ export class GameCamera {
 
     // Smooth drift blend transition
     const driftTarget = target.drifting ? 1 : 0;
-    const driftBlendSpeed = target.drifting ? 3 : 2; // ease in moderately, ease out smoothly
+    const driftBlendSpeed = target.drifting ? 3 : 2;
     this.driftBlend += (driftTarget - this.driftBlend) * (1 - Math.exp(-driftBlendSpeed * dt));
 
     const pos = target.renderPosition;
     const ang = target.renderAngle;
-    const orbitAngle = ang + this.orbitOffset;
+    const isOnWall = target.surfaceType !== SurfaceType.Floor && target.surfaceType !== SurfaceType.Air;
 
-    // Chase camera position — pull back further during drift + scale with altitude
-    const altitude = pos.y;
-    const extraDist = Math.min(altitude * 0.3, 8);
-    const extraHeight = Math.min(altitude * 0.6, 15);
-    const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist;
-    const chasePosX = pos.x - Math.sin(orbitAngle) * distance;
-    const chasePosZ = pos.z - Math.cos(orbitAngle) * distance;
-    const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
-    const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
+    // Lerp camera up toward surface normal
+    const targetNormal = getSurfaceNormal(target.surfaceType);
+    const targetUp = new THREE.Vector3(targetNormal.x, targetNormal.y, targetNormal.z);
+    // For air, use world up
+    if (target.surfaceType === SurfaceType.Air) targetUp.set(0, 1, 0);
+    this.cameraUp.lerp(targetUp, 1 - Math.exp(-5 * dt));
+    this.cameraUp.normalize();
 
-    // First person position
-    const fpPosX = pos.x + Math.sin(ang) * FP_FORWARD_OFFSET;
-    const fpPosZ = pos.z + Math.cos(ang) * FP_FORWARD_OFFSET;
-    const fpPosY = pos.y + FP_HEIGHT;
-    // Look far ahead in bike direction (with orbit offset for panning in FP)
-    const lookDist = 50;
-    const fpLookAngle = ang + this.orbitOffset;
-    const fpLookAt = new THREE.Vector3(
-      pos.x + Math.sin(fpLookAngle) * lookDist,
-      pos.y + FP_HEIGHT * 0.8,
-      pos.z + Math.cos(fpLookAngle) * lookDist,
-    );
+    if (isOnWall) {
+      // Wall chase camera: position behind bike along -forward, offset along surface normal
+      const fwd = new THREE.Vector3(target.forward.x, target.forward.y, target.forward.z).normalize();
+      const normal = new THREE.Vector3(targetNormal.x, targetNormal.y, targetNormal.z);
 
-    // Blend between chase and first person
-    const t = this.fpBlend;
-    this.targetPosition.set(
-      chasePosX + (fpPosX - chasePosX) * t,
-      chasePosY + (fpPosY - chasePosY) * t,
-      chasePosZ + (fpPosZ - chasePosZ) * t,
-    );
-    this.targetLookAt.set(
-      chaseLookAt.x + (fpLookAt.x - chaseLookAt.x) * t,
-      chaseLookAt.y + (fpLookAt.y - chaseLookAt.y) * t,
-      chaseLookAt.z + (fpLookAt.z - chaseLookAt.z) * t,
-    );
+      const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend;
+      // Camera behind bike (-forward * distance) + offset along normal (inward)
+      const chasePos = new THREE.Vector3(
+        pos.x - fwd.x * distance + normal.x * CHASE_HEIGHT,
+        pos.y - fwd.y * distance + normal.y * CHASE_HEIGHT,
+        pos.z - fwd.z * distance + normal.z * CHASE_HEIGHT,
+      );
+      // Look ahead along forward
+      const lookAhead = new THREE.Vector3(
+        pos.x + fwd.x * 5,
+        pos.y + fwd.y * 5,
+        pos.z + fwd.z * 5,
+      );
+
+      // Blend with FP
+      const t = this.fpBlend;
+      const fpPos = new THREE.Vector3(
+        pos.x + fwd.x * FP_FORWARD_OFFSET + normal.x * FP_HEIGHT,
+        pos.y + fwd.y * FP_FORWARD_OFFSET + normal.y * FP_HEIGHT,
+        pos.z + fwd.z * FP_FORWARD_OFFSET + normal.z * FP_HEIGHT,
+      );
+      const fpLook = new THREE.Vector3(
+        pos.x + fwd.x * 50,
+        pos.y + fwd.y * 50,
+        pos.z + fwd.z * 50,
+      );
+
+      this.targetPosition.lerpVectors(chasePos, fpPos, t);
+      this.targetLookAt.lerpVectors(lookAhead, fpLook, t);
+    } else {
+      // Floor/Air: original chase logic
+      const orbitAngle = ang + this.orbitOffset;
+      const altitude = pos.y;
+      const extraDist = Math.min(altitude * 0.3, 8);
+      const extraHeight = Math.min(altitude * 0.6, 15);
+      const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist;
+      const chasePosX = pos.x - Math.sin(orbitAngle) * distance;
+      const chasePosZ = pos.z - Math.cos(orbitAngle) * distance;
+      const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
+      const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
+
+      const fpPosX = pos.x + Math.sin(ang) * FP_FORWARD_OFFSET;
+      const fpPosZ = pos.z + Math.cos(ang) * FP_FORWARD_OFFSET;
+      const fpPosY = pos.y + FP_HEIGHT;
+      const lookDist = 50;
+      const fpLookAngle = ang + this.orbitOffset;
+      const fpLookAt = new THREE.Vector3(
+        pos.x + Math.sin(fpLookAngle) * lookDist,
+        pos.y + FP_HEIGHT * 0.8,
+        pos.z + Math.cos(fpLookAngle) * lookDist,
+      );
+
+      const t = this.fpBlend;
+      this.targetPosition.set(
+        chasePosX + (fpPosX - chasePosX) * t,
+        chasePosY + (fpPosY - chasePosY) * t,
+        chasePosZ + (fpPosZ - chasePosZ) * t,
+      );
+      this.targetLookAt.set(
+        chaseLookAt.x + (fpLookAt.x - chaseLookAt.x) * t,
+        chaseLookAt.y + (fpLookAt.y - chaseLookAt.y) * t,
+        chaseLookAt.z + (fpLookAt.z - chaseLookAt.z) * t,
+      );
+    }
 
     // Faster position lerp during drift to keep up with large rotations
     const lerpSpeed = THREE.MathUtils.lerp(CHASE_LERP, CHASE_LERP_DRIFT, this.driftBlend);
@@ -187,6 +231,9 @@ export class GameCamera {
     } else {
       this.currentLookAt.lerp(this.targetLookAt, lerpFactor);
     }
+
+    // Set camera up vector before lookAt
+    this.camera.up.copy(this.cameraUp);
     this.camera.lookAt(this.currentLookAt);
   }
 
