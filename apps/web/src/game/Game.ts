@@ -165,6 +165,15 @@ export class Game {
       this.menu.show();
     });
 
+    // Check for ?room=WORD share link
+    const params = new URLSearchParams(window.location.search);
+    const roomCode = params.get('room');
+    if (roomCode) {
+      history.replaceState(null, '', window.location.pathname);
+      document.getElementById('menu')!.style.display = 'none';
+      this.lobby.autoJoin(roomCode);
+    }
+
     this.loop();
   }
 

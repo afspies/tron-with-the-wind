@@ -36,7 +36,7 @@ export class Lobby {
     document.getElementById('btn-join-room')!.addEventListener('click', () => {
       const input = document.getElementById('join-input') as HTMLInputElement;
       const code = input.value.trim().toUpperCase();
-      if (code.length !== 4) return;
+      if (code.length < 3 || !/^[A-Z]+$/.test(code)) return;
       this.attemptJoin(code);
     });
 
@@ -147,6 +147,7 @@ export class Lobby {
     this.lobbyDiv.style.display = 'flex';
 
     document.getElementById('lobby-code')!.textContent = code;
+    this.setupShareButton(code);
     this.updateHostUI(isHost);
     this.updatePlayers(this.colyseus.getLobbyState());
   }
@@ -205,6 +206,43 @@ export class Lobby {
       (document.getElementById('lobby-ai-difficulty') as HTMLSelectElement).value = state.aiDifficulty;
       (document.getElementById('lobby-rounds') as HTMLSelectElement).value = String(state.roundsToWin);
     }
+  }
+
+  private setupShareButton(code: string): void {
+    const btn = document.getElementById('btn-share-room')!;
+    const status = document.getElementById('share-status')!;
+
+    const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
+
+    // Replace button to remove old listeners
+    const newBtn = btn.cloneNode(true) as HTMLElement;
+    btn.parentNode!.replaceChild(newBtn, btn);
+
+    newBtn.addEventListener('click', async () => {
+      // Try native share on mobile, fall back to clipboard
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'Tron with the Wind', text: `Join my game!`, url });
+          return;
+        } catch {
+          // User cancelled or share failed — fall through to clipboard
+        }
+      }
+
+      try {
+        await navigator.clipboard.writeText(url);
+        status.textContent = 'Copied!';
+      } catch {
+        status.textContent = 'Copy failed';
+      }
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    });
+  }
+
+  autoJoin(code: string): void {
+    const cleaned = code.trim().toUpperCase();
+    if (cleaned.length < 3 || !/^[A-Z]+$/.test(cleaned)) return;
+    this.attemptJoin(cleaned);
   }
 
   hide(): void {
