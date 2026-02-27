@@ -4,6 +4,8 @@ import { Bike } from '../game/Bike';
 const CHASE_DISTANCE = 12;
 const CHASE_HEIGHT = 8;
 const CHASE_LERP = 4;
+const CHASE_LERP_DRIFT = 14;      // faster lerp during drift to keep up with rotation
+const DRIFT_EXTRA_DISTANCE = 5;   // pull camera back during drift
 
 const OVERVIEW_HEIGHT = 120;
 const OVERVIEW_LERP = 2;
@@ -22,11 +24,14 @@ export class GameCamera {
   private mode: 'chase' | 'overview' = 'chase';
   private targetPosition = new THREE.Vector3();
   private targetLookAt = new THREE.Vector3();
+  private currentLookAt = new THREE.Vector3();
+  private lookAtInitialized = false;
 
   // Camera control state
   private orbitOffset = 0;      // current orbit angle offset (radians)
   private firstPerson = false;
   private fpBlend = 0;          // 0 = chase, 1 = first person
+  private driftBlend = 0;       // 0 = normal, 1 = fully drifting (smooth transition)
   private keys = new Set<string>();
   private viewTogglePressed = false;  // edge-detect for X toggle
 
@@ -61,6 +66,8 @@ export class GameCamera {
       this.firstPerson = false;
       this.fpBlend = 0;
       this.orbitOffset = 0;
+      this.driftBlend = 0;
+      this.lookAtInitialized = false;
     }
   }
 
@@ -123,16 +130,22 @@ export class GameCamera {
       : (bikes.find((b) => b.alive) || bikes[0]);
     if (!target) return;
 
+    // Smooth drift blend transition
+    const driftTarget = target.drifting ? 1 : 0;
+    const driftBlendSpeed = target.drifting ? 3 : 2; // ease in moderately, ease out smoothly
+    this.driftBlend += (driftTarget - this.driftBlend) * (1 - Math.exp(-driftBlendSpeed * dt));
+
     const pos = target.renderPosition;
     const ang = target.renderAngle;
     const orbitAngle = ang + this.orbitOffset;
 
-    // Chase camera position (third person) — scale with altitude
+    // Chase camera position — pull back further during drift + scale with altitude
     const altitude = pos.y;
     const extraDist = Math.min(altitude * 0.3, 8);
     const extraHeight = Math.min(altitude * 0.6, 15);
-    const chasePosX = pos.x - Math.sin(orbitAngle) * (CHASE_DISTANCE + extraDist);
-    const chasePosZ = pos.z - Math.cos(orbitAngle) * (CHASE_DISTANCE + extraDist);
+    const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist;
+    const chasePosX = pos.x - Math.sin(orbitAngle) * distance;
+    const chasePosZ = pos.z - Math.cos(orbitAngle) * distance;
     const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
     const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
 
@@ -162,9 +175,19 @@ export class GameCamera {
       chaseLookAt.z + (fpLookAt.z - chaseLookAt.z) * t,
     );
 
-    const lerpFactor = 1 - Math.exp(-CHASE_LERP * dt);
+    // Faster position lerp during drift to keep up with large rotations
+    const lerpSpeed = THREE.MathUtils.lerp(CHASE_LERP, CHASE_LERP_DRIFT, this.driftBlend);
+    const lerpFactor = 1 - Math.exp(-lerpSpeed * dt);
     this.camera.position.lerp(this.targetPosition, lerpFactor);
-    this.camera.lookAt(this.targetLookAt);
+
+    // Smooth lookAt to prevent orientation snaps on drift start/end
+    if (!this.lookAtInitialized) {
+      this.currentLookAt.copy(this.targetLookAt);
+      this.lookAtInitialized = true;
+    } else {
+      this.currentLookAt.lerp(this.targetLookAt, lerpFactor);
+    }
+    this.camera.lookAt(this.currentLookAt);
   }
 
   private updateOverview(dt: number, bikes: Bike[]): void {
