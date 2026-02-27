@@ -29,9 +29,10 @@ export interface PlayerInput {
   drift: boolean;
   pitchUp: boolean;
   pitchDown: boolean;
+  turnFraction: number; // 0–1 analog steering intensity (1 = full turn rate)
 }
 
-export const NO_INPUT: PlayerInput = { left: false, right: false, jump: false, boost: false, drift: false, pitchUp: false, pitchDown: false };
+export const NO_INPUT: PlayerInput = { left: false, right: false, jump: false, boost: false, drift: false, pitchUp: false, pitchDown: false, turnFraction: 1 };
 
 export interface GameConfig {
   humanCount: number;

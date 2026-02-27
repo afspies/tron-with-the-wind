@@ -24,6 +24,7 @@ const KEY_MAPS: KeyMapping[] = [
 export class InputManager {
   private keys = new Set<string>();
   private virtualInputs = new Map<string, boolean>();
+  private analogValues = new Map<string, number>();
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -60,11 +61,16 @@ export class InputManager {
       drift: pressed('drift'),
       pitchUp: pressed('pitchUp'),
       pitchDown: pressed('pitchDown'),
+      turnFraction: this.analogValues.get('turnFraction') ?? 1,
     };
   }
 
   setVirtualInput(action: string, pressed: boolean): void {
     this.virtualInputs.set(action, pressed);
+  }
+
+  setAnalogValue(name: string, value: number): void {
+    this.analogValues.set(name, value);
   }
 
   isKeyPressed(code: string): boolean {

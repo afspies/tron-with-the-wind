@@ -81,8 +81,9 @@ export class SimBike {
     const turnRate = this.drifting ? TURN_RATE * DRIFT_TURN_MULTIPLIER
       : this.flying ? TURN_RATE * FLIGHT_AIR_TURN_MULT
       : TURN_RATE;
-    if (input.left) this.angle += turnRate * dt;
-    if (input.right) this.angle -= turnRate * dt;
+    const turn = turnRate * (input.turnFraction ?? 1);
+    if (input.left) this.angle += turn * dt;
+    if (input.right) this.angle -= turn * dt;
 
     // Boost
     this.boosting = input.boost && this.boostMeter > 0;

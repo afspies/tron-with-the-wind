@@ -339,50 +339,26 @@
       left: 16px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 5px;
+      background: rgba(10,5,20,0.55);
+      border: 1px solid rgba(153,102,204,0.2);
+      border-radius: 8px;
+      padding: 8px 12px;
     }
     .hud-player {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       opacity: 0.9;
     }
     .hud-player.dead { opacity: 0.4; text-decoration: line-through; }
-    .hud-boost-bar {
-      width: 50px;
-      height: 6px;
-      background: rgba(255,255,255,0.15);
-      border-radius: 3px;
-      overflow: hidden;
-      margin-left: 4px;
-    }
-    .hud-boost-fill {
-      height: 100%;
-      border-radius: 3px;
-      transition: width 0.1s linear;
-    }
-    .hud-dj-bar {
-      width: 50px;
-      height: 4px;
-      background: rgba(0,221,255,0.15);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-left: 4px;
-    }
-    .hud-dj-fill {
-      height: 100%;
-      width: 100%;
-      background: #00ddff;
-      border-radius: 2px;
-      transition: width 0.3s linear;
-      box-shadow: 0 0 4px rgba(0,221,255,0.5);
-    }
     .hud-dot {
-      width: 12px;
-      height: 12px;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
       box-shadow: 0 0 8px currentColor;
+      flex-shrink: 0;
     }
     .hud-status {
       font-size: 1.1rem;
@@ -478,23 +454,67 @@
       position: absolute;
       bottom: 0; left: 0; right: 0;
       justify-content: space-between;
+      align-items: flex-end;
       padding: 16px 20px;
       pointer-events: auto;
       z-index: 50;
     }
-    .touch-zone {
-      display: flex;
-      gap: 12px;
+
+    /* Drag pad */
+    .touch-drag-pad {
+      width: min(40vmin, 200px);
+      height: min(40vmin, 200px);
+      border-radius: 50%;
+      background: rgba(153,102,204,0.12);
+      border: 2px solid rgba(153,102,204,0.35);
+      position: relative;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
+    .touch-drag-pad.active {
+      background: rgba(153,102,204,0.22);
+      border-color: rgba(153,102,204,0.55);
+    }
+    .touch-drag-indicator {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #ffd700;
+      box-shadow: 0 0 10px rgba(255,215,0,0.5);
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: none;
+      pointer-events: none;
+    }
+    .touch-drag-pad.active .touch-drag-indicator {
+      display: block;
+    }
+
+    /* L-shape action buttons (2x2 grid, top-right empty) */
+    .touch-buttons {
+      display: grid;
+      grid-template-columns: 72px 72px;
+      grid-template-rows: 72px 72px;
+      gap: 10px;
+    }
+    .touch-buttons .touch-btn:nth-child(1) { grid-column: 1; grid-row: 1; } /* BOOST top-left */
+    .touch-buttons .touch-btn:nth-child(2) { grid-column: 1; grid-row: 2; } /* DRIFT bottom-left */
+    .touch-buttons .touch-btn:nth-child(3) { grid-column: 2; grid-row: 2; } /* JUMP bottom-right */
+
     .touch-btn {
-      width: 64px;
-      height: 64px;
+      width: 72px;
+      height: 72px;
       border-radius: 50%;
       background: rgba(153,102,204,0.25);
       border: 2px solid rgba(153,102,204,0.5);
       color: #f0e6d3;
       font-family: 'Cinzel', serif;
-      font-size: 1.4rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -502,15 +522,27 @@
       -webkit-user-select: none;
       touch-action: none;
     }
-    .touch-btn.touch-action {
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-    }
     .touch-btn.active {
       background: rgba(153,102,204,0.5);
       border-color: #ffd700;
       box-shadow: 0 0 15px rgba(255,215,0,0.4);
+    }
+
+    /* Mobile HUD repositioning */
+    .touch-device #hud-local-status {
+      bottom: auto;
+      top: 220px;
+      right: 16px;
+    }
+    .touch-device .boost-dial {
+      width: 14vmin;
+      height: 14vmin;
+    }
+    .touch-device .jump-bar {
+      height: 12vmin;
+    }
+    .touch-device #hud-powerups {
+      top: 20vmin;
     }
 
     #hud-ping {

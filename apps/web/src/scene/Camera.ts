@@ -39,9 +39,11 @@ export class GameCamera {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.set(0, OVERVIEW_HEIGHT, 0);
     this.camera.lookAt(0, 0, 0);
+    this.updateFov();
 
     window.addEventListener('resize', () => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
+      this.updateFov();
       this.camera.updateProjectionMatrix();
     });
 
@@ -53,6 +55,12 @@ export class GameCamera {
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
     });
+  }
+
+  private updateFov(): void {
+    const aspect = this.camera.aspect;
+    // Widen FOV on portrait screens (aspect < 1) to compensate for narrow view
+    this.camera.fov = aspect < 1 ? 85 : 60;
   }
 
   /** 0 = chase, 1 = fully first-person */
