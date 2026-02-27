@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  ARENA_SIZE,
   ARENA_HALF,
   STADIUM_INNER_GAP,
   STADIUM_TIER_COUNT,
@@ -67,15 +66,16 @@ export class Crowd {
     ];
 
     const spacing = 2.0;
-    const crowdPerRow = Math.floor(ARENA_SIZE / spacing);
 
     for (const side of sides) {
       for (let t = 0; t < STADIUM_TIER_COUNT; t++) {
         const tierCenter = ARENA_HALF + STADIUM_INNER_GAP + t * STADIUM_TIER_DEPTH + STADIUM_TIER_DEPTH / 2;
         const tierTopY = (t + 1) * STADIUM_TIER_HEIGHT;
+        const tierHalfSpan = ARENA_HALF + STADIUM_INNER_GAP + (t + 1) * STADIUM_TIER_DEPTH;
+        const crowdPerRow = Math.floor((tierHalfSpan * 2) / spacing);
 
         for (let c = 0; c < crowdPerRow; c++) {
-          const along = -ARENA_HALF + spacing * 0.5 + c * spacing + (Math.random() - 0.5) * 0.5;
+          const along = -tierHalfSpan + spacing * 0.5 + c * spacing + (Math.random() - 0.5) * 0.5;
 
           if (side.axis === 'z') {
             positions.push({
