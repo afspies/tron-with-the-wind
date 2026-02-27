@@ -23,8 +23,8 @@ const CROWD_VERTEX = /* glsl */ `
     // Idle bobbing
     float bob = sin(uTime * 1.5 + aPhase) * 0.15;
 
-    // Death reaction jump
-    float jump = uReaction * 2.0;
+    // Death reaction jump — vary height per instance
+    float jump = uReaction * (1.5 + aPhase * 0.8);
 
     pos.y += bob + jump;
 
@@ -124,7 +124,7 @@ export class Crowd {
       for (let i = 0; i < count; i++) {
         const p = positions[i];
 
-        dummy.position.set(p.x, p.y + 0.75, p.z);
+        dummy.position.set(p.x, p.y + 0.75 + (Math.random() - 0.5) * 0.4, p.z);
 
         // Face toward arena center
         if (p.sideIdx === 0) dummy.rotation.y = 0;
