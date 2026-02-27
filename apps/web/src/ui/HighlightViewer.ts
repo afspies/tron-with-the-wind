@@ -34,13 +34,23 @@ export class HighlightViewer {
 
     this.container.innerHTML = '';
 
-    // Video player
+    // Video player with watermark overlay
+    const videoWrapper = document.createElement('div');
+    videoWrapper.className = 'highlight-video-wrapper';
+
     this.video = document.createElement('video');
     this.video.src = this.blobUrl;
     this.video.className = 'highlight-video';
     this.video.controls = true;
     this.video.playsInline = true;
-    this.container.appendChild(this.video);
+    videoWrapper.appendChild(this.video);
+
+    const watermark = document.createElement('div');
+    watermark.className = 'highlight-watermark';
+    watermark.textContent = 'Tron with the Wind \u00B7 tron.afspies.com';
+    videoWrapper.appendChild(watermark);
+
+    this.container.appendChild(videoWrapper);
 
     // Filmstrip
     if (highlights.length > 0) {

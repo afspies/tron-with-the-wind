@@ -540,9 +540,6 @@ export class Game {
 
     updateEnvironment(this.ctx.scene, this.elapsedTime);
     this.ctx.composer.render();
-
-    // Capture frame for recording (after render, so we get the composited output)
-    this.recorder?.captureFrame();
   };
 
   // --- Local (Quickplay) Update ---
