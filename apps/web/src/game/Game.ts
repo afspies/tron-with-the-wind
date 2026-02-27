@@ -20,6 +20,8 @@ import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
 import { Minimap } from '../ui/Minimap';
 import { PowerUpManager } from './PowerUpManager';
+import { Stadium } from './Stadium';
+import { Crowd } from './Crowd';
 
 export class Game {
   private ctx: SceneContext;
@@ -47,6 +49,10 @@ export class Game {
 
   // Power-ups
   private powerUpManager!: PowerUpManager;
+
+  // Stadium & crowd
+  private stadium!: Stadium;
+  private crowd!: Crowd;
 
   // UI
   private menu: Menu;
@@ -76,6 +82,8 @@ export class Game {
     setupEnvironment(this.ctx.scene);
     this.arena = new Arena(this.ctx.scene);
     this.powerUpManager = new PowerUpManager(this.ctx.scene);
+    this.stadium = new Stadium(this.ctx.scene);
+    this.crowd = new Crowd(this.ctx.scene);
 
     // Network
     this.colyseus = new ColyseusClient();
@@ -539,6 +547,7 @@ export class Game {
       }
     }
 
+    this.crowd.update(dt, this.elapsedTime);
     updateEnvironment(this.ctx.scene, this.elapsedTime);
     this.ctx.composer.render();
   };
@@ -558,6 +567,13 @@ export class Game {
 
     // Tick headless simulation
     const result = this.simulation.tick(dt, inputs);
+
+    // Detect deaths before syncing (compare old alive state to new)
+    for (let i = 0; i < this.bikes.length; i++) {
+      if (this.bikes[i].alive && !this.simulation.bikes[i].alive) {
+        this.crowd.onDeath();
+      }
+    }
 
     // Sync visual bikes from simulation
     for (let i = 0; i < this.bikes.length; i++) {
@@ -595,6 +611,13 @@ export class Game {
     // Read server state
     const roomState = this.colyseus.room?.state as any;
     if (!roomState) return;
+
+    // Detect deaths before syncing
+    for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {
+      if (this.bikes[i].alive && !roomState.bikes[i].alive) {
+        this.crowd.onDeath();
+      }
+    }
 
     // Sync visual bikes from schema
     for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {

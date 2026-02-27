@@ -68,6 +68,18 @@ export const FLIGHT_LANDING_MAX_PITCH = 1.22;  // ~70°, match FLIGHT_MAX_PITCH
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
 
+// Stadium
+export const STADIUM_INNER_GAP = 5;
+export const STADIUM_TIER_COUNT = 8;
+export const STADIUM_TIER_HEIGHT = 5;
+export const STADIUM_TIER_DEPTH = 7;
+export const STADIUM_SIDES: Array<{ axis: 'x' | 'z'; sign: 1 | -1 }> = [
+  { axis: 'z', sign: -1 }, // north
+  { axis: 'z', sign: 1 },  // south
+  { axis: 'x', sign: -1 }, // west
+  { axis: 'x', sign: 1 },  // east
+];
+
 // Drift
 export const DRIFT_TURN_MULTIPLIER = 1.8;
 export const DRIFT_SPEED_MULTIPLIER = 0.85;
