@@ -16,4 +16,6 @@ COPY packages/ packages/
 COPY apps/server/ apps/server/
 
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+  CMD wget --spider -q http://localhost:8080/health || exit 1
 CMD ["npx", "tsx", "--tsconfig", "apps/server/tsconfig.json", "apps/server/src/index.ts"]
