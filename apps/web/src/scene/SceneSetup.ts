@@ -18,7 +18,7 @@ export function createSceneContext(camera: THREE.PerspectiveCamera): SceneContex
   document.body.prepend(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x1a0a2e, 0.003);
+  scene.fog = new THREE.FogExp2(0x1a0a2e, 0.001);
 
   // Post-processing
   const composer = new EffectComposer(renderer);

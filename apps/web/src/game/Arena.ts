@@ -1,6 +1,30 @@
 import * as THREE from 'three';
 import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT } from '@tron/shared';
 
+const gridWallVertex = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const gridWallFragment = /* glsl */ `
+  uniform vec3 uColor;
+  varying vec2 vUv;
+  void main() {
+    // Grid lines: ~20 cells across each axis
+    vec2 grid = abs(fract(vUv * 20.0 - 0.5) - 0.5);
+    float line = min(grid.x, grid.y);
+    float gridMask = 1.0 - smoothstep(0.0, 0.04, line);
+
+    // Base nearly invisible, grid lines more visible
+    float alpha = mix(0.03, 0.25, gridMask);
+    vec3 color = mix(uColor * 0.5, uColor, gridMask);
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
 export class Arena {
   ground: THREE.Mesh;
   walls: THREE.Mesh[] = [];
@@ -24,16 +48,7 @@ export class Arena {
     (gridHelper.material as THREE.Material).opacity = 0.3;
     scene.add(gridHelper);
 
-    // Boundary walls
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x4a2a6a,
-      emissive: 0x2a1a4a,
-      emissiveIntensity: 0.5,
-      transparent: true,
-      opacity: 0.6,
-      side: THREE.DoubleSide,
-    });
-
+    // Boundary walls — translucent grid shader
     const wallConfigs = [
       { x: 0, z: -ARENA_HALF, rotY: 0 },
       { x: 0, z: ARENA_HALF, rotY: 0 },
@@ -43,7 +58,17 @@ export class Arena {
 
     for (const cfg of wallConfigs) {
       const wallGeo = new THREE.PlaneGeometry(ARENA_SIZE, WALL_HEIGHT);
-      const wall = new THREE.Mesh(wallGeo, wallMat.clone());
+      const wallMat = new THREE.ShaderMaterial({
+        vertexShader: gridWallVertex,
+        fragmentShader: gridWallFragment,
+        uniforms: {
+          uColor: { value: new THREE.Color(0x9966CC) },
+        },
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const wall = new THREE.Mesh(wallGeo, wallMat);
       wall.position.set(cfg.x, WALL_HEIGHT / 2, cfg.z);
       wall.rotation.y = cfg.rotY;
       scene.add(wall);
@@ -66,40 +91,6 @@ export class Arena {
       bottomEdge.position.set(cfg.x, 0.075, cfg.z);
       bottomEdge.rotation.y = cfg.rotY;
       scene.add(bottomEdge);
-    }
-
-    // Corner pillars
-    const pillarGeo = new THREE.CylinderGeometry(0.5, 0.5, WALL_HEIGHT + 1, 8);
-    const pillarMat = new THREE.MeshStandardMaterial({
-      color: 0x6a3a8a,
-      emissive: 0x9966CC,
-      emissiveIntensity: 0.8,
-    });
-    const corners = [
-      [-ARENA_HALF, -ARENA_HALF],
-      [-ARENA_HALF, ARENA_HALF],
-      [ARENA_HALF, -ARENA_HALF],
-      [ARENA_HALF, ARENA_HALF],
-    ];
-    for (const [cx, cz] of corners) {
-      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-      pillar.position.set(cx, (WALL_HEIGHT + 1) / 2, cz);
-      scene.add(pillar);
-
-      // Orb on top
-      const orbGeo = new THREE.SphereGeometry(0.8, 16, 16);
-      const orbMat = new THREE.MeshStandardMaterial({
-        color: 0xffd700,
-        emissive: 0xffd700,
-        emissiveIntensity: 1.5,
-      });
-      const orb = new THREE.Mesh(orbGeo, orbMat);
-      orb.position.set(cx, WALL_HEIGHT + 1.5, cz);
-      scene.add(orb);
-
-      const orbLight = new THREE.PointLight(0xffd700, 3, 20);
-      orbLight.position.set(cx, WALL_HEIGHT + 1.5, cz);
-      scene.add(orbLight);
     }
   }
 }

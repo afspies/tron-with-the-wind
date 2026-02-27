@@ -67,6 +67,12 @@ export const FLIGHT_LANDING_MAX_PITCH = 0.79;  // ~45°, crash if landing steepe
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
 
+// Stadium
+export const STADIUM_INNER_GAP = 5;
+export const STADIUM_TIER_COUNT = 8;
+export const STADIUM_TIER_HEIGHT = 5;
+export const STADIUM_TIER_DEPTH = 7;
+
 // Drift
 export const DRIFT_TURN_MULTIPLIER = 1.8;
 export const DRIFT_SPEED_MULTIPLIER = 0.85;
