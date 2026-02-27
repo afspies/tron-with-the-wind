@@ -710,6 +710,98 @@
       font-weight: 700;
       min-width: 3ch;
     }
+    /* Settings panel */
+    #settings {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      background: radial-gradient(ellipse at center, rgba(26,10,46,0.85) 0%, rgba(10,5,20,0.95) 100%);
+    }
+    #settings h2 {
+      font-family: 'Cinzel Decorative', cursive;
+      font-size: 2.5rem;
+      font-weight: 900;
+      background: linear-gradient(135deg, #ffd700, #ff8c00, #ffd700);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.3rem;
+      letter-spacing: 0.05em;
+    }
+    .settings-subtitle {
+      font-size: 0.85rem;
+      color: #9966CC;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      margin-bottom: 2rem;
+    }
+    #settings-bindings {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 2rem;
+      width: 460px;
+      max-width: 90vw;
+    }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .settings-label {
+      width: 120px;
+      font-size: 0.9rem;
+      color: #f0e6d3;
+      text-align: right;
+      letter-spacing: 0.05em;
+      flex-shrink: 0;
+    }
+    .settings-spacer {
+      width: 120px;
+      flex-shrink: 0;
+    }
+    .key-cell {
+      flex: 1;
+      padding: 10px 16px;
+      text-align: center;
+      font-family: 'Cinzel', serif;
+      font-size: 0.9rem;
+      color: #f0e6d3;
+      background: rgba(153,102,204,0.15);
+      border: 2px solid rgba(153,102,204,0.3);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+      min-width: 80px;
+    }
+    .key-cell:hover {
+      border-color: rgba(255,215,0,0.5);
+      background: rgba(153,102,204,0.25);
+    }
+    .key-cell.empty {
+      color: rgba(153,102,204,0.4);
+      font-style: italic;
+    }
+    .key-cell.listening {
+      border-color: #ffd700;
+      background: rgba(255,215,0,0.1);
+      color: #ffd700;
+      animation: key-pulse 1s ease-in-out infinite;
+    }
+    @keyframes key-pulse {
+      0%, 100% { box-shadow: 0 0 6px rgba(255,215,0,0.3); }
+      50% { box-shadow: 0 0 18px rgba(255,215,0,0.6); }
+    }
+    .settings-actions {
+      display: flex;
+      gap: 12px;
+    }
+    .settings-actions .menu-btn {
+      width: auto;
+      padding: 12px 28px;
+      font-size: 0.95rem;
+    }
   </style>
 </head>
 <body>
@@ -727,6 +819,17 @@
           <input id="join-input" type="text" maxlength="4" placeholder="CODE" autocomplete="off" />
           <button class="menu-btn" id="btn-join-room" style="width:auto; padding:10px 24px;">Join</button>
         </div>
+      </div>
+      <button class="menu-btn" id="btn-settings">Settings</button>
+    </div>
+
+    <div id="settings">
+      <h2>Key Bindings</h2>
+      <p class="settings-subtitle">Click a key to rebind</p>
+      <div id="settings-bindings"></div>
+      <div class="settings-actions">
+        <button class="menu-btn" id="btn-settings-reset">Reset to Defaults</button>
+        <button class="menu-btn" id="btn-settings-back">Back</button>
       </div>
     </div>
 

@@ -8,10 +8,12 @@ export class Menu {
   private nicknameInput: HTMLInputElement;
   private onStart: (config: GameConfig) => void;
   private onOnline: () => void;
+  private onSettings: () => void;
 
-  constructor(onStart: (config: GameConfig) => void, onOnline: () => void) {
+  constructor(onStart: (config: GameConfig) => void, onOnline: () => void, onSettings: () => void) {
     this.onStart = onStart;
     this.onOnline = onOnline;
+    this.onSettings = onSettings;
     this.menuEl = document.getElementById('menu')!;
     this.onlinePanel = document.getElementById('online-panel')!;
     this.nicknameInput = document.getElementById('nickname-input') as HTMLInputElement;
@@ -41,8 +43,12 @@ export class Menu {
     });
 
     document.getElementById('btn-online')!.addEventListener('click', () => {
-      this.onlinePanel.style.display =
-        this.onlinePanel.style.display === 'none' ? 'block' : 'none';
+      this.onOnline();
+    });
+
+    document.getElementById('btn-settings')!.addEventListener('click', () => {
+      this.hide();
+      this.onSettings();
     });
   }
 

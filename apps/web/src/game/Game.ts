@@ -19,6 +19,7 @@ import { Lobby } from '../ui/Lobby';
 import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
 import { Minimap } from '../ui/Minimap';
+import { Settings } from '../ui/Settings';
 import { PowerUpManager } from './PowerUpManager';
 import { Stadium } from './Stadium';
 import { Crowd } from './Crowd';
@@ -55,6 +56,7 @@ export class Game {
   private crowd!: Crowd;
 
   // UI
+  private settings: Settings;
   private menu: Menu;
   private hud: HUD;
   private scoreboard: Scoreboard;
@@ -88,12 +90,12 @@ export class Game {
     // Network
     this.colyseus = new ColyseusClient();
 
+    this.settings = new Settings(() => this.menu.show());
+
     this.menu = new Menu(
       (config) => this.startGame(config),
-      () => {
-        // Online button clicked — show create/join
-        this.lobby.showCreateJoin();
-      },
+      () => this.lobby.showCreateJoin(),
+      () => this.settings.show(),
     );
 
     this.lobby = new Lobby(
@@ -266,6 +268,7 @@ export class Game {
   private initOnlineGame(serverState: any): void {
     this.lobby.hide();
     this.menu.hide();
+    this.settings.hide();
     this.scoreboard.hideAll();
     this.cleanupBikes();
 
@@ -395,6 +398,7 @@ export class Game {
 
     this.config = config;
     this.menu.hide();
+    this.settings.hide();
     this.scoreboard.hideAll();
 
     // Clean up old bikes
