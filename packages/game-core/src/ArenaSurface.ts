@@ -32,6 +32,21 @@ export function getArenaSurfaceInfo(pos: Vec3): SurfaceInfo {
   if (dZPos < wallDist) { wallDist = dZPos; wallAxis = 1; wallSign = 1; }
   if (dZNeg < wallDist) { wallDist = dZNeg; wallAxis = 1; wallSign = -1; }
 
+  // Vertical corner ramp: near two walls simultaneously
+  const distToXWall = Math.min(dXPos, dXNeg);
+  const distToZWall = Math.min(dZPos, dZNeg);
+  if (distToXWall < R && distToZWall < R) {
+    const xSign = dXPos < dXNeg ? 1 : -1;
+    const zSign = dZPos < dZNeg ? 1 : -1;
+    if (dFloor < R) {
+      return computeCornerRamp(pos, xSign, zSign, R, 'floor');
+    } else if (dCeiling < R) {
+      return computeCornerRamp(pos, xSign, zSign, R, 'ceiling');
+    } else {
+      return computeCornerRamp(pos, xSign, zSign, R, 'wall');
+    }
+  }
+
   // Floor-wall ramp zone: close to both a wall and the floor
   if (wallDist < R && dFloor < R) {
     return computeRamp(pos, wallAxis, wallSign, R, 'floor');
@@ -114,6 +129,73 @@ function computeRamp(
   }
 
   return { normal, constrainedPos, surfaceType: deriveSurfaceType(normal) };
+}
+
+/**
+ * Compute surface info for a vertical corner ramp where two walls meet.
+ * 'wall' mode: vertical quarter-cylinder connecting two walls
+ * 'floor' mode: sphere octant at floor-corner junction
+ * 'ceiling' mode: sphere octant at ceiling-corner junction
+ */
+function computeCornerRamp(
+  pos: Vec3,
+  xSign: number, // +1 for +X wall, -1 for -X wall
+  zSign: number, // +1 for +Z wall, -1 for -Z wall
+  R: number,
+  edge: 'wall' | 'floor' | 'ceiling',
+): SurfaceInfo {
+  const centerX = xSign * (ARENA_HALF - R);
+  const centerZ = zSign * (ARENA_HALF - R);
+
+  if (edge === 'wall') {
+    // Vertical cylinder: normal is purely in XZ plane
+    const dx = pos.x - centerX;
+    const dz = pos.z - centerZ;
+    const dist2D = Math.sqrt(dx * dx + dz * dz);
+
+    let nx: number, nz: number;
+    if (dist2D < 0.001) {
+      nx = -xSign * 0.7071;
+      nz = -zSign * 0.7071;
+    } else {
+      nx = -dx / dist2D;
+      nz = -dz / dist2D;
+    }
+
+    return {
+      normal: { x: nx, y: 0, z: nz },
+      constrainedPos: { x: centerX - R * nx, y: pos.y, z: centerZ - R * nz },
+      surfaceType: deriveSurfaceType({ x: nx, y: 0, z: nz }),
+    };
+  }
+
+  // Sphere octant at floor or ceiling corner
+  const centerY = edge === 'floor' ? R : CEILING_HEIGHT - R;
+  const dx = pos.x - centerX;
+  const dy = pos.y - centerY;
+  const dz = pos.z - centerZ;
+  const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  let nx: number, ny: number, nz: number;
+  if (dist3D < 0.001) {
+    nx = -xSign * 0.577;
+    ny = edge === 'floor' ? 0.577 : -0.577;
+    nz = -zSign * 0.577;
+  } else {
+    nx = -dx / dist3D;
+    ny = -dy / dist3D;
+    nz = -dz / dist3D;
+  }
+
+  return {
+    normal: { x: nx, y: ny, z: nz },
+    constrainedPos: {
+      x: centerX - R * nx,
+      y: centerY - R * ny,
+      z: centerZ - R * nz,
+    },
+    surfaceType: deriveSurfaceType({ x: nx, y: ny, z: nz }),
+  };
 }
 
 function computeFlatWall(pos: Vec3, wallAxis: 0 | 1, wallSign: number): SurfaceInfo {

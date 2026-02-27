@@ -1,7 +1,7 @@
 export const MAX_PLAYERS = 4;
 export const ARENA_SIZE = 200;
 export const ARENA_HALF = ARENA_SIZE / 2;
-export const CEILING_HEIGHT = 30;
+export const CEILING_HEIGHT = 60;
 export const WALL_HEIGHT = CEILING_HEIGHT;
 
 export const BIKE_SPEED = 30;

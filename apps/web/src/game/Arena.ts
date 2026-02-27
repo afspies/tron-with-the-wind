@@ -30,21 +30,21 @@ export class Arena {
 
     // Shared wall material
     const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x4a2a6a,
-      emissive: 0x2a1a4a,
-      emissiveIntensity: 0.5,
+      color: 0x5a3a7a,
+      emissive: 0x3a2a5a,
+      emissiveIntensity: 0.8,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.8,
       side: THREE.DoubleSide,
     });
 
     // Ramp material (slightly different tint)
     const rampMat = new THREE.MeshStandardMaterial({
-      color: 0x3a2050,
-      emissive: 0x2a1a4a,
-      emissiveIntensity: 0.4,
+      color: 0x4a3060,
+      emissive: 0x3a2a5a,
+      emissiveIntensity: 0.7,
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.75,
       side: THREE.DoubleSide,
     });
 
@@ -70,6 +70,9 @@ export class Arena {
     const rampSegs = 12; // arc segments for smooth quarter-circle
     this.buildFloorWallRamps(scene, rampMat, R, rampSegs);
     this.buildCeilingWallRamps(scene, rampMat, R, rampSegs);
+
+    // Vertical corner ramps (4 quarter-cylinder curves at wall-wall junctions)
+    this.buildVerticalCornerRamps(scene, rampMat, R, rampSegs);
 
     // Corner pillars (now extend full height)
     const pillarGeo = new THREE.CylinderGeometry(0.5, 0.5, WALL_HEIGHT + 1, 8);
@@ -179,6 +182,87 @@ export class Arena {
       const mesh = new THREE.Mesh(geo, mat.clone());
       scene.add(mesh);
     }
+  }
+
+  /**
+   * Build vertical quarter-cylinder ramp meshes at all 4 wall-wall corner junctions.
+   */
+  private buildVerticalCornerRamps(scene: THREE.Scene, mat: THREE.Material, R: number, segs: number): void {
+    const cornerDefs: Array<{ xSign: number; zSign: number }> = [
+      { xSign: 1, zSign: 1 },
+      { xSign: 1, zSign: -1 },
+      { xSign: -1, zSign: 1 },
+      { xSign: -1, zSign: -1 },
+    ];
+
+    // Vertical ramp height: from floor ramp top (R) to ceiling ramp bottom (CEILING_HEIGHT - R)
+    const rampHeight = WALL_HEIGHT - R * 2;
+
+    for (const cd of cornerDefs) {
+      const geo = this.createCornerRampGeometry(R, segs, rampHeight, cd.xSign, cd.zSign);
+      const mesh = new THREE.Mesh(geo, mat.clone());
+      scene.add(mesh);
+    }
+  }
+
+  /**
+   * Create geometry for a vertical quarter-cylinder ramp at a wall-wall corner.
+   * The ramp runs vertically from y=R to y=R+height.
+   */
+  private createCornerRampGeometry(
+    R: number, segs: number, height: number,
+    xSign: number, zSign: number,
+  ): THREE.BufferGeometry {
+    const centerX = xSign * (ARENA_HALF - R);
+    const centerZ = zSign * (ARENA_HALF - R);
+    const yBottom = R; // starts above floor ramp
+    const yTop = yBottom + height; // ends below ceiling ramp
+
+    const verts: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
+
+    const heightSegs = 1;
+
+    for (let hi = 0; hi <= heightSegs; hi++) {
+      const y = yBottom + (height * hi) / heightSegs;
+
+      for (let ai = 0; ai <= segs; ai++) {
+        const t = ai / segs;
+        // Arc from one wall face to the adjacent wall face
+        // angle 0 = at the X-wall, angle PI/2 = at the Z-wall
+        const angle = t * (Math.PI / 2);
+
+        // Point on the arc in XZ plane, offset from center
+        const px = centerX + Math.cos(angle) * xSign * R;
+        const pz = centerZ + Math.sin(angle) * zSign * R;
+
+        // Normal points inward (toward arena center)
+        const nx = -Math.cos(angle) * xSign;
+        const nz = -Math.sin(angle) * zSign;
+
+        verts.push(px, y, pz);
+        normals.push(nx, 0, nz);
+      }
+    }
+
+    // Build triangle indices
+    const vertsPerRow = segs + 1;
+    for (let hi = 0; hi < heightSegs; hi++) {
+      for (let ai = 0; ai < segs; ai++) {
+        const a = hi * vertsPerRow + ai;
+        const b = a + 1;
+        const c = a + vertsPerRow;
+        const d = c + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setIndex(indices);
+    return geo;
   }
 
   /**

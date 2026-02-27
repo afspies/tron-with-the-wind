@@ -566,18 +566,28 @@ export class Bike {
 
     const isOnSurface = this.surfaceType !== SurfaceType.Air && this.grounded;
 
-    if (isOnSurface && this.surfaceNormal.y < 0.99) {
-      // Non-flat surface: build rotation from forward + surfaceNormal
-      const fwd = new THREE.Vector3(this.forward.x, this.forward.y, this.forward.z).normalize();
+    if (isOnSurface) {
+      // Build rotation from forward projected onto surface plane + surface normal
       const up = new THREE.Vector3(this.surfaceNormal.x, this.surfaceNormal.y, this.surfaceNormal.z);
-      const right = new THREE.Vector3().crossVectors(fwd, up).normalize();
-      // Recompute forward to ensure orthogonality
-      fwd.crossVectors(up, right).normalize();
 
-      const mat = new THREE.Matrix4().makeBasis(right, up, fwd.negate());
+      // Project forward onto the surface plane (remove normal component)
+      const rawFwd = new THREE.Vector3(this.forward.x, this.forward.y, this.forward.z);
+      const dot = rawFwd.dot(up);
+      const projected = rawFwd.clone().addScaledVector(up, -dot);
+
+      if (projected.lengthSq() < 0.001) {
+        // Forward nearly parallel to normal — use angle-based fallback
+        projected.set(Math.sin(this.visualAngle), 0, Math.cos(this.visualAngle));
+        projected.addScaledVector(up, -projected.dot(up)).normalize();
+      } else {
+        projected.normalize();
+      }
+
+      const right = new THREE.Vector3().crossVectors(projected, up).normalize();
+      const mat = new THREE.Matrix4().makeBasis(right, up, projected.clone().negate());
       this.targetQuaternion.setFromRotationMatrix(mat);
     } else {
-      // Floor/Air: use euler rotation (angle around Y)
+      // Air: use euler rotation (angle around Y)
       this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.visualAngle, 0));
     }
 
