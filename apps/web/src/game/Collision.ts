@@ -1,6 +1,29 @@
-import type { Vec2 } from '@tron/shared';
+import type { Vec2, TrailPoint } from '@tron/shared';
 import { ARENA_HALF, TRAIL_HEIGHT, TRAIL_SKIP_SEGMENTS, BIKE_COLLISION_HEIGHT, SELF_TRAIL_GRACE_RADIUS } from '@tron/shared';
 import { Trail } from './Trail';
+
+/**
+ * Returns true if a self-trail segment should be skipped for collision.
+ * The grace radius prevents the bike from colliding with its own trail near
+ * its current position, but only when the segment is at a different height
+ * (e.g. flying over previously laid trail on the ground).
+ */
+function isOwnSegmentInGraceZone(
+  p1: TrailPoint,
+  p2: TrailPoint,
+  bikeY: number,
+  newPos: Vec2,
+  graceSq: number,
+): boolean {
+  const avgSegY = (p1.y + p2.y) * 0.5;
+  if (Math.abs(bikeY - avgSegY) <= BIKE_COLLISION_HEIGHT) return false;
+
+  const dx0 = p1.x - newPos.x;
+  const dz0 = p1.z - newPos.z;
+  const dx1 = p2.x - newPos.x;
+  const dz1 = p2.z - newPos.z;
+  return dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq;
+}
 
 export function lineSegmentsIntersect(
   a1: Vec2, a2: Vec2,
@@ -63,18 +86,7 @@ export function checkTrailCollision(
     const endIdx = pts.length - 1 - skipEnd;
 
     for (let i = 0; i < endIdx; i++) {
-      // For own trail, skip segments where both endpoints are within grace radius (XZ)
-      // but only when the trail is at a different height (vertical stacking during flight)
-      if (isOwn) {
-        const avgSegY = (pts[i].y + pts[i + 1].y) * 0.5;
-        if (Math.abs(bikeY - avgSegY) > BIKE_COLLISION_HEIGHT) {
-          const dx0 = pts[i].x - newPos.x;
-          const dz0 = pts[i].z - newPos.z;
-          const dx1 = pts[i + 1].x - newPos.x;
-          const dz1 = pts[i + 1].z - newPos.z;
-          if (dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq) continue;
-        }
-      }
+      if (isOwn && isOwnSegmentInGraceZone(pts[i], pts[i + 1], bikeY, newPos, graceSq)) continue;
 
       const u = lineSegmentIntersectParam(oldPos, newPos, pts[i], pts[i + 1]);
       if (u < 0) continue;
@@ -116,18 +128,7 @@ export function checkTrailCollisionDetailed(
     const endIdx = pts.length - 1 - skipEnd;
 
     for (let i = 0; i < endIdx; i++) {
-      // For own trail, skip segments where both endpoints are within grace radius (XZ)
-      // but only when the trail is at a different height (vertical stacking during flight)
-      if (isOwn) {
-        const avgSegY = (pts[i].y + pts[i + 1].y) * 0.5;
-        if (Math.abs(bikeY - avgSegY) > BIKE_COLLISION_HEIGHT) {
-          const dx0 = pts[i].x - newPos.x;
-          const dz0 = pts[i].z - newPos.z;
-          const dx1 = pts[i + 1].x - newPos.x;
-          const dz1 = pts[i + 1].z - newPos.z;
-          if (dx0 * dx0 + dz0 * dz0 < graceSq && dx1 * dx1 + dz1 * dz1 < graceSq) continue;
-        }
-      }
+      if (isOwn && isOwnSegmentInGraceZone(pts[i], pts[i + 1], bikeY, newPos, graceSq)) continue;
 
       const u = lineSegmentIntersectParam(oldPos, newPos, pts[i], pts[i + 1]);
       if (u < 0) continue;

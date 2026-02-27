@@ -609,15 +609,7 @@ export class Game {
     this.hud.update(this.bikes, this.round.roundNumber, this.config.roundsToWin);
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
 
-    // Wire up live head: trail always connects seamlessly to bike
-    for (const bike of this.bikes) {
-      if (bike.alive) {
-        const rp = bike.renderPosition;
-        bike.trail.updateLiveHead(rp.x, rp.y, rp.z);
-      } else {
-        bike.trail.clearLiveHead();
-      }
-    }
+    this.updateTrailLiveHeads();
 
     if (result.roundEnded) {
       this.handleRoundEnd(result.winnerIndex);
@@ -638,8 +630,10 @@ export class Game {
     const newTick = roomState.tick !== this.lastServerTick;
     if (newTick) this.lastServerTick = roomState.tick;
 
-    // Advance fractional remote render tick smoothly at frame rate
-    this.remoteRenderTick += dt / (NET_TICK_DURATION_MS / 1000);
+    // Advance fractional render tick at frame rate, targeting one tick behind
+    // the server so interpolation always has data ahead of the render point.
+    const tickDurationSec = NET_TICK_DURATION_MS / 1000;
+    this.remoteRenderTick += dt / tickDurationSec;
     if (newTick) {
       const targetTick = roomState.tick - 1;
       const drift = targetTick - this.remoteRenderTick;
@@ -685,7 +679,11 @@ export class Game {
     this.hud.update(this.bikes, roomState.roundNumber, roomState.roundsToWin);
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
 
-    // Wire up live head: trail always connects seamlessly to bike
+    this.updateTrailLiveHeads();
+  }
+
+  /** Connect each trail's live head segment to its bike's current render position. */
+  private updateTrailLiveHeads(): void {
     for (const bike of this.bikes) {
       if (bike.alive) {
         const rp = bike.renderPosition;

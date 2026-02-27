@@ -78,11 +78,11 @@ export class Bike {
   // Client-side prediction: local player's bike runs physics locally
   isLocalPredicted = false;
 
-  // Snap + render offset: physics snaps to server, visual offset decays smoothly
+  // Render offset: after physics snaps to server, visual offset decays smoothly
   renderOffset = new THREE.Vector3();
   renderAngleOffset = 0;
 
-  // Visual smoothing: rendered position converges toward authoritative position
+  // Rendered position/angle (includes render offset for predicted bikes)
   visualPos: THREE.Vector3;
   visualAngle: number;
   private visualInitialized = false;
@@ -349,25 +349,21 @@ export class Bike {
     // Update trail (follows bike Y for 3D arcs)
     this.trail.addPoint(this.position.x, this.position.y, this.position.z);
 
-    // Update mesh — predicted bikes decay render offset for smooth corrections
+    // Predicted bikes: decay render offset so visual smoothly converges to physics
     if (this.isLocalPredicted) {
       const decay = Math.exp(-VISUAL_CORRECTION_RATE * dt);
       this.renderOffset.multiplyScalar(decay);
       this.renderAngleOffset *= decay;
       if (this.renderOffset.lengthSq() < 0.0001) this.renderOffset.set(0, 0, 0);
       if (Math.abs(this.renderAngleOffset) < 0.001) this.renderAngleOffset = 0;
-      this.visualPos.copy(this.position).add(this.renderOffset);
-      this.visualAngle = this.angle + this.renderAngleOffset;
-      this.visualInitialized = true;
-      this.mesh.position.copy(this.visualPos);
-      this.mesh.rotation.y = this.visualAngle;
-    } else {
-      this.visualPos.copy(this.position);
-      this.visualAngle = this.angle;
-      this.visualInitialized = true;
-      this.mesh.position.copy(this.position);
-      this.mesh.rotation.y = this.angle;
     }
+
+    // Compute visual position (physics + render offset for predicted bikes)
+    this.visualPos.copy(this.position).add(this.renderOffset);
+    this.visualAngle = this.angle + this.renderAngleOffset;
+    this.visualInitialized = true;
+    this.mesh.position.copy(this.visualPos);
+    this.mesh.rotation.y = this.visualAngle;
 
     this.updateBodyPitch();
     this.updateDriftLean();
@@ -703,13 +699,12 @@ export class Bike {
     }
     // With 0 or 1 state, position/angle are already set from applyNetState
 
-    // With fractional render tick, interpolation is smooth at frame rate
+    // Remote bikes: no render offset, visual tracks interpolated position directly
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;
     this.visualInitialized = true;
-
-    this.mesh.position.copy(this.position);
-    this.mesh.rotation.y = this.angle;
+    this.mesh.position.copy(this.visualPos);
+    this.mesh.rotation.y = this.visualAngle;
 
     this.updateBodyPitch();
     this.updateDriftLean();
