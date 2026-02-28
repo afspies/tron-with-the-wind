@@ -15,6 +15,13 @@ export interface Vec2 {
   z: number;
 }
 
+export interface Quat {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}
+
 export interface TrailPoint {
   x: number;
   y: number;

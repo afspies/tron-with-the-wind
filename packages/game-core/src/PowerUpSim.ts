@@ -59,9 +59,11 @@ export class PowerUpSim {
       });
     }
 
-    // Pickup check
+    // Pickup check — powerups are on the floor (Y=0), only allow pickup when bike is near floor
+    const POWERUP_PICKUP_HEIGHT = 3.0;
     for (const bike of bikes) {
       if (!bike.alive) continue;
+      if (bike.position.y > POWERUP_PICKUP_HEIGHT) continue;
       for (const pu of this.powerUps) {
         if (!pu.active) continue;
         const dx = bike.position.x - pu.x;

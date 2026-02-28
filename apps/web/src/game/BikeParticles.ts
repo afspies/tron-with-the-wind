@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { TRAIL_HEIGHT, GRAVITY } from '@tron/shared';
 
+interface Vec3Like { x: number; y: number; z: number }
+
 export class TrailParticles {
   private points: THREE.Points;
   private positions: Float32Array;
@@ -27,10 +29,19 @@ export class TrailParticles {
     scene.add(this.points);
   }
 
-  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean, flying = false): void {
+  update(
+    dt: number,
+    bikeX: number, bikeY: number, bikeZ: number,
+    bikeAngle: number, grounded: boolean, flying: boolean,
+    forward?: Vec3Like, up?: Vec3Like,
+  ): void {
     const posArr = this.positions;
     const spdArr = this.speeds;
     const lifeArr = this.lifetimes;
+
+    // Use provided direction vectors or fall back to floor-based
+    const fwd = forward ?? { x: Math.sin(bikeAngle), y: 0, z: Math.cos(bikeAngle) };
+    const surfUp = up ?? { x: 0, y: 1, z: 0 };
 
     // Update existing
     for (let i = 0; i < this.maxParticles; i++) {
@@ -46,23 +57,26 @@ export class TrailParticles {
     if (flying || grounded || bikeY < 1) {
       for (let i = 0; i < this.maxParticles; i++) {
         if (lifeArr[i] <= 0) {
-          const rear = -1.0;
-          const rx = bikeX - Math.sin(bikeAngle) * rear;
-          const rz = bikeZ - Math.cos(bikeAngle) * rear;
-          posArr[i * 3] = rx + (Math.random() - 0.5) * 0.5;
-          posArr[i * 3 + 2] = rz + (Math.random() - 0.5) * 0.5;
+          // Rear position: behind the bike along its forward direction
+          const rearDist = 1.0;
+          const rx = bikeX - fwd.x * rearDist + (Math.random() - 0.5) * 0.5;
+          const ry = bikeY - fwd.y * rearDist + (Math.random() - 0.5) * 0.5;
+          const rz = bikeZ - fwd.z * rearDist + (Math.random() - 0.5) * 0.5;
+          posArr[i * 3] = rx;
+          posArr[i * 3 + 1] = ry;
+          posArr[i * 3 + 2] = rz;
+
           if (flying) {
-            // Exhaust plume: spawn behind + below, high velocity away
-            posArr[i * 3 + 1] = bikeY - 0.3 + (Math.random() - 0.5) * 0.5;
-            spdArr[i * 3] = -Math.sin(bikeAngle) * 5 + (Math.random() - 0.5) * 2;
-            spdArr[i * 3 + 1] = -3 + Math.random() * 2;
-            spdArr[i * 3 + 2] = -Math.cos(bikeAngle) * 5 + (Math.random() - 0.5) * 2;
+            // Exhaust plume: spawn behind + away from surface, high velocity
+            spdArr[i * 3] = -fwd.x * 5 + (Math.random() - 0.5) * 2;
+            spdArr[i * 3 + 1] = -fwd.y * 5 + (Math.random() - 0.5) * 2 - surfUp.y * 3;
+            spdArr[i * 3 + 2] = -fwd.z * 5 + (Math.random() - 0.5) * 2;
             lifeArr[i] = 0.2 + Math.random() * 0.4;
           } else {
-            posArr[i * 3 + 1] = Math.random() * TRAIL_HEIGHT;
-            spdArr[i * 3] = (Math.random() - 0.5) * 2;
-            spdArr[i * 3 + 1] = Math.random() * 3;
-            spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2;
+            // Trail particles: spread along surface normal
+            spdArr[i * 3] = (Math.random() - 0.5) * 2 + surfUp.x * Math.random() * 3;
+            spdArr[i * 3 + 1] = (Math.random() - 0.5) * 2 + surfUp.y * Math.random() * 3;
+            spdArr[i * 3 + 2] = (Math.random() - 0.5) * 2 + surfUp.z * Math.random() * 3;
             lifeArr[i] = 0.3 + Math.random() * 0.5;
           }
           break; // one per frame
@@ -106,10 +120,27 @@ export class DriftParticles {
     scene.add(this.points);
   }
 
-  update(dt: number, bikeX: number, bikeY: number, bikeZ: number, bikeAngle: number, grounded: boolean, drifting: boolean): void {
+  update(
+    dt: number,
+    bikeX: number, bikeY: number, bikeZ: number,
+    bikeAngle: number, grounded: boolean, drifting: boolean,
+    forward?: Vec3Like, up?: Vec3Like,
+  ): void {
     const posArr = this.positions;
     const spdArr = this.speeds;
     const lifeArr = this.lifetimes;
+
+    // Compute right vector (perpendicular to forward in the surface plane)
+    const fwd = forward ?? { x: Math.sin(bikeAngle), y: 0, z: Math.cos(bikeAngle) };
+    const surfUp = up ?? { x: 0, y: 1, z: 0 };
+    // right = cross(fwd, up)
+    const perpX = fwd.y * surfUp.z - fwd.z * surfUp.y;
+    const perpY = fwd.z * surfUp.x - fwd.x * surfUp.z;
+    const perpZ = fwd.x * surfUp.y - fwd.y * surfUp.x;
+    const perpLen = Math.sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
+    const rX = perpLen > 0.001 ? perpX / perpLen : 0;
+    const rY = perpLen > 0.001 ? perpY / perpLen : 0;
+    const rZ = perpLen > 0.001 ? perpZ / perpLen : 0;
 
     // Update existing
     for (let i = 0; i < this.maxParticles; i++) {
@@ -123,18 +154,17 @@ export class DriftParticles {
 
     // Spawn sparks from bike sides when drifting + grounded
     if (drifting && grounded) {
-      const perpX = Math.cos(bikeAngle);
-      const perpZ = -Math.sin(bikeAngle);
       let spawned = 0;
       for (let i = 0; i < this.maxParticles && spawned < 2; i++) {
         if (lifeArr[i] <= 0) {
           const side = spawned === 0 ? 1 : -1;
-          posArr[i * 3] = bikeX + perpX * side * 0.5 + (Math.random() - 0.5) * 0.3;
-          posArr[i * 3 + 1] = bikeY + Math.random() * 0.3;
-          posArr[i * 3 + 2] = bikeZ + perpZ * side * 0.5 + (Math.random() - 0.5) * 0.3;
-          spdArr[i * 3] = perpX * side * (3 + Math.random() * 4);
-          spdArr[i * 3 + 1] = Math.random() * 2;
-          spdArr[i * 3 + 2] = perpZ * side * (3 + Math.random() * 4);
+          posArr[i * 3] = bikeX + rX * side * 0.5 + (Math.random() - 0.5) * 0.3;
+          posArr[i * 3 + 1] = bikeY + rY * side * 0.5 + (Math.random() - 0.5) * 0.3;
+          posArr[i * 3 + 2] = bikeZ + rZ * side * 0.5 + (Math.random() - 0.5) * 0.3;
+          const sparkSpeed = 3 + Math.random() * 4;
+          spdArr[i * 3] = rX * side * sparkSpeed;
+          spdArr[i * 3 + 1] = rY * side * sparkSpeed + surfUp.y * Math.random() * 2;
+          spdArr[i * 3 + 2] = rZ * side * sparkSpeed;
           lifeArr[i] = 0.2 + Math.random() * 0.2;
           spawned++;
         }
@@ -158,18 +188,22 @@ export class DeathParticles {
   private lifetimes: Float32Array;
   private maxParticles = 80;
 
-  constructor(color: string, x: number, y: number, z: number, scene: THREE.Scene) {
+  constructor(color: string, x: number, y: number, z: number, scene: THREE.Scene, surfaceNormal?: Vec3Like) {
     this.positions = new Float32Array(this.maxParticles * 3);
     this.velocities = new Float32Array(this.maxParticles * 3);
     this.lifetimes = new Float32Array(this.maxParticles);
 
+    const up = surfaceNormal ?? { x: 0, y: 1, z: 0 };
+
     for (let i = 0; i < this.maxParticles; i++) {
       this.positions[i * 3] = x + (Math.random() - 0.5) * 2;
-      this.positions[i * 3 + 1] = y + Math.random() * 2;
+      this.positions[i * 3 + 1] = y + (Math.random() - 0.5) * 2;
       this.positions[i * 3 + 2] = z + (Math.random() - 0.5) * 2;
-      this.velocities[i * 3] = (Math.random() - 0.5) * 20;
-      this.velocities[i * 3 + 1] = Math.random() * 15;
-      this.velocities[i * 3 + 2] = (Math.random() - 0.5) * 20;
+      // Scatter primarily along surface normal + random
+      const normalSpeed = Math.random() * 15;
+      this.velocities[i * 3] = (Math.random() - 0.5) * 20 + up.x * normalSpeed;
+      this.velocities[i * 3 + 1] = (Math.random() - 0.5) * 20 + up.y * normalSpeed;
+      this.velocities[i * 3 + 2] = (Math.random() - 0.5) * 20 + up.z * normalSpeed;
       this.lifetimes[i] = 0.5 + Math.random() * 1.0;
     }
 

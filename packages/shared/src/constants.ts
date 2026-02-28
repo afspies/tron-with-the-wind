@@ -93,3 +93,10 @@ export const DRIFT_TURN_MULTIPLIER = 1.8;
 export const DRIFT_SPEED_MULTIPLIER = 0.85;
 export const DRIFT_TRACTION = 4.0;   // low = more slide (try 2.0-8.0)
 export const NORMAL_TRACTION = 60.0; // high = instant grip
+
+// Wall driving
+export const CURVE_RADIUS = 8;           // quarter-cylinder radius at floor-wall transitions
+export const CEILING_HEIGHT = 30;        // arena ceiling height
+export const WALL_GRAVITY = 5;           // downward force on wall-riding bikes
+export const BOUNCE_DAMPING = 0.5;       // velocity retained after bouncing off a surface
+export const AIRBORNE_LEVEL_RATE = 3.0;  // rate at which airborne bikes level out toward upright
