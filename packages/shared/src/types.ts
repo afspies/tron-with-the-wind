@@ -21,6 +21,16 @@ export interface TrailPoint {
   z: number;
 }
 
+export interface WorldPlatform {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  width: number;
+  depth: number;
+  height: number;
+}
+
 export interface PlayerInput {
   left: boolean;
   right: boolean;

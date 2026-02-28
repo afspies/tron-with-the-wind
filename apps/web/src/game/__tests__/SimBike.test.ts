@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SimBike } from '@tron/game-core';
-import { NO_INPUT } from '@tron/shared';
+import { NO_INPUT, ARENA_HALF, ARENA_CEILING_HEIGHT, BIKE_COLLISION_HEIGHT, MAP_PLATFORMS } from '@tron/shared';
 import type { SimPowerUpEffect } from '@tron/game-core';
 
 function createMockEffect(opts?: { updatesRemaining?: number }): SimPowerUpEffect & { grantCalls: number; expireCalls: number } {
@@ -98,5 +98,43 @@ describe('SimBike activeEffect handling', () => {
 
     // activeEffect should have been null when onExpire was called
     expect(activeEffectDuringExpire).toBeNull();
+  });
+
+  it('attaches to side walls instead of dying', () => {
+    const bike = new SimBike(0, '#ff0000', ARENA_HALF - 0.5, 0, Math.PI / 2);
+    bike.update(0.05, NO_INPUT, [], true);
+
+    expect(bike.alive).toBe(true);
+    expect(bike.wallNormal).not.toBeNull();
+    expect(Math.abs(bike.position.x)).toBeCloseTo(ARENA_HALF, 4);
+  });
+
+  it('bounces off the ceiling instead of dying', () => {
+    const bike = new SimBike(0, '#ff0000', 0, 0, 0);
+    bike.grounded = false;
+    bike.vy = 40;
+    bike.position.y = ARENA_CEILING_HEIGHT - BIKE_COLLISION_HEIGHT - 0.2;
+
+    bike.update(0.05, NO_INPUT, [], true);
+
+    expect(bike.alive).toBe(true);
+    expect(bike.vy).toBeLessThan(0);
+    expect(bike.position.y).toBeLessThanOrEqual(ARENA_CEILING_HEIGHT - BIKE_COLLISION_HEIGHT);
+  });
+
+  it('bounces off platform undersides', () => {
+    const platform = MAP_PLATFORMS[0];
+    const minY = platform.y - platform.height * 0.5;
+
+    const bike = new SimBike(0, '#ff0000', platform.x, platform.z, 0);
+    bike.grounded = false;
+    bike.vy = 24;
+    bike.position.y = minY - BIKE_COLLISION_HEIGHT - 0.15;
+
+    bike.update(0.05, NO_INPUT, [], true);
+
+    expect(bike.alive).toBe(true);
+    expect(bike.vy).toBeLessThan(0);
+    expect(bike.position.y).toBeLessThanOrEqual(minY - BIKE_COLLISION_HEIGHT + 0.01);
   });
 });

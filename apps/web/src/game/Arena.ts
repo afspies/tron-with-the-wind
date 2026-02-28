@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT } from '@tron/shared';
+import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT, ARENA_CEILING_HEIGHT, MAP_PLATFORMS } from '@tron/shared';
 
 const gridWallVertex = /* glsl */ `
   varying vec2 vUv;
@@ -28,6 +28,8 @@ const gridWallFragment = /* glsl */ `
 export class Arena {
   ground: THREE.Mesh;
   walls: THREE.Mesh[] = [];
+  ceiling: THREE.Mesh;
+  platforms: THREE.Mesh[] = [];
 
   constructor(scene: THREE.Scene) {
     // Ground plane with grid pattern
@@ -91,6 +93,38 @@ export class Arena {
       bottomEdge.position.set(cfg.x, 0.075, cfg.z);
       bottomEdge.rotation.y = cfg.rotY;
       scene.add(bottomEdge);
+    }
+
+    const ceilingGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE, 40, 40);
+    const ceilingMat = new THREE.MeshStandardMaterial({
+      color: 0x1a2238,
+      emissive: 0x24304f,
+      emissiveIntensity: 0.25,
+      roughness: 0.8,
+      metalness: 0.25,
+      transparent: true,
+      opacity: 0.6,
+      side: THREE.DoubleSide,
+    });
+    this.ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+    this.ceiling.rotation.x = Math.PI / 2;
+    this.ceiling.position.y = ARENA_CEILING_HEIGHT;
+    scene.add(this.ceiling);
+
+    for (const p of MAP_PLATFORMS) {
+      const platform = new THREE.Mesh(
+        new THREE.BoxGeometry(p.width, p.height, p.depth),
+        new THREE.MeshStandardMaterial({
+          color: 0x2e4c66,
+          emissive: 0x3b6c92,
+          emissiveIntensity: 0.3,
+          roughness: 0.45,
+          metalness: 0.45,
+        }),
+      );
+      platform.position.set(p.x, p.y, p.z);
+      scene.add(platform);
+      this.platforms.push(platform);
     }
   }
 }

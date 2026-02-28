@@ -1,7 +1,10 @@
+import type { WorldPlatform } from './types';
+
 export const MAX_PLAYERS = 4;
 export const ARENA_SIZE = 200;
 export const ARENA_HALF = ARENA_SIZE / 2;
-export const WALL_HEIGHT = 6;
+export const WALL_HEIGHT = 20;
+export const ARENA_CEILING_HEIGHT = WALL_HEIGHT + 4;
 
 export const BIKE_SPEED = 30;
 export const TURN_RATE = 3; // rad/s
@@ -15,6 +18,17 @@ export const JUMP_PEAK_HEIGHT = 3.0;
 export const GRAVITY = 20.0;
 export const JUMP_INITIAL_VY = Math.sqrt(2 * GRAVITY * JUMP_PEAK_HEIGHT);
 export const JUMP_COOLDOWN = 0.3;
+
+// World collision response
+export const WORLD_BOUNCE_RESTITUTION = 0.6;
+export const WORLD_BOUNCE_MIN_SPEED = 8.0;
+export const WORLD_BOUNCE_TANGENT_DAMPING = 0.92;
+
+// Wall driving
+export const WALL_RIDE_GRAVITY_MULTIPLIER = 0.4;
+export const WALL_RIDE_CLIMB_MULTIPLIER = 0.9;
+export const WALL_RIDE_ATTACH_DOT_MIN = 0.15;
+export const WALL_RIDE_STICK_DISTANCE = 1.2;
 
 export const PLAYER_COLORS = [
   '#50C878', // emerald
@@ -31,6 +45,11 @@ export const SPAWN_POSITIONS: Array<{ x: number; z: number; angle: number }> = [
   { x: ARENA_HALF - 20, z: ARENA_HALF - 20, angle: -Math.PI * 0.75 },    // (80,80)   -> (-,-)
   { x: ARENA_HALF - 20, z: -ARENA_HALF + 20, angle: -Math.PI * 0.25 },   // (80,-80)  -> (-,+)
   { x: -ARENA_HALF + 20, z: ARENA_HALF - 20, angle: Math.PI * 0.75 },    // (-80,80)  -> (+,-)
+];
+
+export const MAP_PLATFORMS: WorldPlatform[] = [
+  { id: 'west-bridge', x: -36, y: 6, z: 0, width: 28, depth: 12, height: 1.5 },
+  { id: 'east-bridge', x: 36, y: 10, z: 0, width: 24, depth: 10, height: 1.5 },
 ];
 
 // Boost

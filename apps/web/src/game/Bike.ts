@@ -5,17 +5,20 @@ import {
   BOOST_MULTIPLIER, BOOST_MAX, BOOST_DRAIN, BOOST_RECHARGE, BOOST_RECHARGE_DELAY,
   NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
   RENDER_OFFSET_SNAP_THRESHOLD, RENDER_OFFSET_MIN_CORRECTION,
-  ARENA_HALF, TRAIL_DESTROY_RADIUS,
+  ARENA_HALF, ARENA_CEILING_HEIGHT, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
   DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_TRACTION, NORMAL_TRACTION,
-  FLIGHT_PITCH_RATE, FLIGHT_PITCH_RETURN_RATE, FLIGHT_MAX_PITCH,
+  FLIGHT_PITCH_RATE, FLIGHT_MAX_PITCH,
   FLIGHT_THRUST, FLIGHT_AIR_TURN_MULT, FLIGHT_BOOST_DRAIN_MULT,
-  FLIGHT_LANDING_MAX_PITCH,
+  BIKE_COLLISION_HEIGHT,
+  WORLD_BOUNCE_RESTITUTION, WORLD_BOUNCE_MIN_SPEED, WORLD_BOUNCE_TANGENT_DAMPING,
+  WALL_RIDE_GRAVITY_MULTIPLIER, WALL_RIDE_CLIMB_MULTIPLIER, WALL_RIDE_ATTACH_DOT_MIN,
+  WALL_RIDE_STICK_DISTANCE, WALL_HEIGHT, MAP_PLATFORMS,
 } from '@tron/shared';
 import type { Vec2, PlayerInput } from '@tron/shared';
 import type { SimBike } from '@tron/game-core';
 import { Trail } from './Trail';
-import { checkTrailCollision, checkTrailCollisionDetailed, checkWallCollision } from './Collision';
+import { checkTrailCollision, checkTrailCollisionDetailed } from './Collision';
 import type { PowerUpEffect } from './powerups/PowerUpEffect';
 import { createEffect } from './powerups/PowerUpRegistry';
 import { TrailParticles, DriftParticles, DeathParticles } from './BikeParticles';
@@ -74,6 +77,7 @@ export class Bike {
   // Flight
   pitch = 0;
   flying = false;
+  wallNormal: Vec2 | null = null;
 
   // Client-side prediction: local player's bike runs physics locally
   isLocalPredicted = false;
@@ -184,8 +188,10 @@ export class Bike {
       return;
     }
 
-    // Drift state: ground-only, cancels on jump
-    const wantsDrift = input.drift && this.grounded;
+    const oldPos3D = { x: this.position.x, y: this.position.y, z: this.position.z };
+    const oldPos = { x: this.position.x, z: this.position.z };
+
+    const wantsDrift = input.drift && this.grounded && !this.wallNormal;
     if (wantsDrift !== this.drifting) {
       this.drifting = wantsDrift;
       this.driftTimer = 0;
@@ -199,28 +205,24 @@ export class Bike {
     if (input.left) this.angle += turnRate * dt;
     if (input.right) this.angle -= turnRate * dt;
 
-    // Boost
     this.boosting = input.boost && this.boostMeter > 0;
-    this.flying = !this.grounded && this.usedDoubleJumpThisAirborne && this.boosting;
+    this.flying = !this.grounded && !this.wallNormal && this.usedDoubleJumpThisAirborne && this.boosting;
 
     if (this.boosting) {
       const drain = this.flying ? BOOST_DRAIN * FLIGHT_BOOST_DRAIN_MULT : BOOST_DRAIN;
       this.boostMeter = Math.max(0, this.boostMeter - drain * dt);
       this.boostRechargeTimer = BOOST_RECHARGE_DELAY;
+    } else if (this.boostRechargeTimer > 0) {
+      this.boostRechargeTimer -= dt;
     } else {
-      if (this.boostRechargeTimer > 0) {
-        this.boostRechargeTimer -= dt;
-      } else {
-        // Non-linear: recharge faster when meter is fuller
-        const fillFraction = this.boostMeter / BOOST_MAX;
-        const rate = BOOST_RECHARGE * (0.3 + 0.7 * fillFraction);
-        this.boostMeter = Math.min(BOOST_MAX, this.boostMeter + rate * dt);
-      }
+      const fillFraction = this.boostMeter / BOOST_MAX;
+      const rate = BOOST_RECHARGE * (0.3 + 0.7 * fillFraction);
+      this.boostMeter = Math.min(BOOST_MAX, this.boostMeter + rate * dt);
     }
     const currentSpeed = this.effectiveSpeed;
+    const forward: Vec2 = { x: Math.sin(this.angle), z: Math.cos(this.angle) };
 
-    // Pitch update — player-controlled via W/S whenever airborne
-    if (!this.grounded) {
+    if (!this.grounded && !this.wallNormal) {
       if (input.pitchUp) {
         this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
       } else if (input.pitchDown) {
@@ -231,8 +233,8 @@ export class Bike {
     }
 
     // Velocity vector traction blend
-    const desiredVx = Math.sin(this.angle) * currentSpeed;
-    const desiredVz = Math.cos(this.angle) * currentSpeed;
+    const desiredVx = forward.x * currentSpeed;
+    const desiredVz = forward.z * currentSpeed;
     const traction = this.drifting ? DRIFT_TRACTION : NORMAL_TRACTION;
     const t = 1 - Math.exp(-traction * dt);
     this.vx += (desiredVx - this.vx) * t;
@@ -248,29 +250,27 @@ export class Bike {
     // Derive velocityAngle for visuals
     this.velocityAngle = Math.atan2(this.vx, this.vz);
 
-    const oldPos: Vec2 = { x: this.position.x, z: this.position.z };
-
-    // Move
-    if (this.flying) {
-      // Flight overrides traction: use heading direction with pitch-based speed
+    if (this.wallNormal) {
+      this.moveAlongWall(dt, currentSpeed, forward);
+    } else if (this.flying) {
       const horizSpeed = BIKE_SPEED * BOOST_MULTIPLIER * Math.cos(this.pitch);
-      this.position.x += Math.sin(this.angle) * horizSpeed * dt;
-      this.position.z += Math.cos(this.angle) * horizSpeed * dt;
+      this.position.x += forward.x * horizSpeed * dt;
+      this.position.z += forward.z * horizSpeed * dt;
       this.vy += FLIGHT_THRUST * Math.sin(this.pitch) * dt;
     } else if (!this.grounded && this.pitch > 0) {
       const horizSpeed = BIKE_SPEED * Math.cos(this.pitch);
-      this.position.x += Math.sin(this.angle) * horizSpeed * dt;
-      this.position.z += Math.cos(this.angle) * horizSpeed * dt;
+      this.position.x += forward.x * horizSpeed * dt;
+      this.position.z += forward.z * horizSpeed * dt;
     } else {
-      // Ground / normal air: use velocity traction model
       this.position.x += this.vx * dt;
       this.position.z += this.vz * dt;
     }
 
-    // Jump
     this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
     if (input.jump && this.jumpCooldown <= 0) {
-      if (this.grounded) {
+      if (this.wallNormal) {
+        this.jumpOffWall(currentSpeed);
+      } else if (this.grounded) {
         this.vy = JUMP_INITIAL_VY;
         this.grounded = false;
         this.jumpCooldown = JUMP_COOLDOWN;
@@ -284,22 +284,19 @@ export class Bike {
       }
     }
 
-    if (!this.grounded) {
+    if (this.wallNormal) {
+      this.position.y += this.vy * dt;
+      this.vy -= GRAVITY * WALL_RIDE_GRAVITY_MULTIPLIER * dt;
+    } else if (!this.grounded) {
       this.position.y += this.vy * dt;
       this.vy -= GRAVITY * dt;
-      if (this.position.y <= 0) {
-        if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
-          this.die();
-          return;
-        }
-        this.position.y = 0;
-        this.vy = 0;
-        this.grounded = true;
-        this.pitch = 0;
-        this.flying = false;
-        this.jumpCooldown = JUMP_COOLDOWN;
-      }
     }
+
+    this.resolveFloorContact();
+    this.resolveCeilingBounce();
+    this.resolveArenaWallContact(forward, currentSpeed);
+    this.resolvePlatformCollisions(oldPos3D);
+    this.resolvePlatformSupport();
 
     const newPos: Vec2 = { x: this.position.x, z: this.position.z };
 
@@ -319,20 +316,8 @@ export class Bike {
       }
     }
 
-    // Collision (skipped for client-predicted bikes — host is authoritative for death)
     if (!skipCollision) {
-      if (checkWallCollision(this.position.x, this.position.z)) {
-        if (this.invulnerable) {
-          // Clamp to arena boundary
-          this.position.x = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.x));
-          this.position.z = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.z));
-        } else {
-          this.die();
-          return;
-        }
-      }
       if (this.invulnerable) {
-        // Invulnerable: destroy enemy trails on contact
         const hit = checkTrailCollisionDetailed(oldPos, newPos, this.position.y, allTrails, this.playerIndex);
         if (hit && hit.trailIndex !== this.playerIndex) {
           allTrails[hit.trailIndex].deleteSegmentsInRadius(hit.contactX, hit.contactZ, TRAIL_DESTROY_RADIUS);
@@ -371,6 +356,209 @@ export class Bike {
     // Spawn trail particles (use visual position to prevent particle pop on snap)
     this.trailParticles.update(dt, this.visualPos.x, this.visualPos.y, this.visualPos.z, this.visualAngle, this.grounded, this.flying);
     this.driftParticles.update(dt, this.visualPos.x, this.visualPos.y, this.visualPos.z, this.visualAngle, this.grounded, this.drifting);
+  }
+
+  private moveAlongWall(dt: number, currentSpeed: number, forward: Vec2): void {
+    if (!this.wallNormal) return;
+
+    const normal = this.wallNormal;
+    const tangent = { x: normal.z, z: -normal.x };
+    const alongWall = forward.x * tangent.x + forward.z * tangent.z;
+    const intoWall = Math.max(0, -(forward.x * normal.x + forward.z * normal.z));
+
+    this.vy += currentSpeed * intoWall * WALL_RIDE_CLIMB_MULTIPLIER * dt;
+    this.position.x += tangent.x * currentSpeed * alongWall * dt;
+    this.position.z += tangent.z * currentSpeed * alongWall * dt;
+
+    this.stickToWall(normal);
+
+    const facingAway = forward.x * normal.x + forward.z * normal.z;
+    if (facingAway > 0.35) {
+      this.wallNormal = null;
+    }
+  }
+
+  private jumpOffWall(currentSpeed: number): void {
+    if (!this.wallNormal) return;
+    const normal = this.wallNormal;
+    this.wallNormal = null;
+    this.vy = JUMP_INITIAL_VY;
+    this.vx += normal.x * currentSpeed * 0.5;
+    this.vz += normal.z * currentSpeed * 0.5;
+    this.grounded = false;
+    this.jumpCooldown = JUMP_COOLDOWN;
+  }
+
+  private resolveFloorContact(): void {
+    if (this.position.y > 0) return;
+    const wasOffGround = !this.grounded || this.wallNormal !== null;
+    this.position.y = 0;
+    this.vy = 0;
+    this.grounded = true;
+    this.pitch = 0;
+    this.flying = false;
+    this.wallNormal = null;
+    if (wasOffGround) {
+      this.jumpCooldown = Math.max(this.jumpCooldown, JUMP_COOLDOWN);
+    }
+  }
+
+  private resolveCeilingBounce(): void {
+    const ceilingBaseY = ARENA_CEILING_HEIGHT - BIKE_COLLISION_HEIGHT;
+    if (this.position.y <= ceilingBaseY) return;
+
+    this.position.y = ceilingBaseY;
+    if (this.vy > 0) {
+      this.vy = -Math.max(this.vy * WORLD_BOUNCE_RESTITUTION, WORLD_BOUNCE_MIN_SPEED);
+    }
+    this.grounded = false;
+    this.flying = false;
+    this.wallNormal = null;
+    this.pitch = 0;
+  }
+
+  private resolveArenaWallContact(forward: Vec2, currentSpeed: number): void {
+    if (this.position.x > ARENA_HALF) {
+      this.position.x = ARENA_HALF;
+      this.handleSideSurface({ x: -1, z: 0 }, forward, currentSpeed);
+    } else if (this.position.x < -ARENA_HALF) {
+      this.position.x = -ARENA_HALF;
+      this.handleSideSurface({ x: 1, z: 0 }, forward, currentSpeed);
+    }
+
+    if (this.position.z > ARENA_HALF) {
+      this.position.z = ARENA_HALF;
+      this.handleSideSurface({ x: 0, z: -1 }, forward, currentSpeed);
+    } else if (this.position.z < -ARENA_HALF) {
+      this.position.z = -ARENA_HALF;
+      this.handleSideSurface({ x: 0, z: 1 }, forward, currentSpeed);
+    }
+
+    if (this.wallNormal) {
+      const dist = this.wallNormal.x !== 0
+        ? Math.abs(Math.abs(this.position.x) - ARENA_HALF)
+        : Math.abs(Math.abs(this.position.z) - ARENA_HALF);
+      if (dist > WALL_RIDE_STICK_DISTANCE) this.wallNormal = null;
+    }
+  }
+
+  private handleSideSurface(normal: Vec2, forward: Vec2, currentSpeed: number): void {
+    const intoWall = -(forward.x * normal.x + forward.z * normal.z);
+    const canAttach = this.position.y >= 0 && this.position.y <= WALL_HEIGHT && intoWall > WALL_RIDE_ATTACH_DOT_MIN;
+
+    if (canAttach) {
+      this.wallNormal = { x: normal.x, z: normal.z };
+      this.grounded = false;
+      this.flying = false;
+      this.vy = Math.max(this.vy, currentSpeed * intoWall * WALL_RIDE_CLIMB_MULTIPLIER * 0.35);
+      this.stickToWall(normal);
+      return;
+    }
+
+    this.wallNormal = null;
+    this.reflectHorizontal(normal);
+  }
+
+  private resolvePlatformCollisions(oldPos: { x: number; y: number; z: number }): void {
+    for (const p of MAP_PLATFORMS) {
+      const minX = p.x - p.width * 0.5;
+      const maxX = p.x + p.width * 0.5;
+      const minY = p.y - p.height * 0.5;
+      const maxY = p.y + p.height * 0.5;
+      const minZ = p.z - p.depth * 0.5;
+      const maxZ = p.z + p.depth * 0.5;
+
+      const withinX = this.position.x >= minX && this.position.x <= maxX;
+      const withinZ = this.position.z >= minZ && this.position.z <= maxZ;
+
+      if (withinX && withinZ) {
+        if (oldPos.y >= maxY && this.position.y <= maxY && this.vy <= 0) {
+          this.position.y = maxY;
+          this.vy = 0;
+          this.grounded = true;
+          this.flying = false;
+          this.wallNormal = null;
+          this.pitch = 0;
+          return;
+        }
+
+        const oldTop = oldPos.y + BIKE_COLLISION_HEIGHT;
+        const newTop = this.position.y + BIKE_COLLISION_HEIGHT;
+        if (oldTop <= minY && newTop >= minY && this.vy > 0) {
+          this.position.y = minY - BIKE_COLLISION_HEIGHT;
+          this.vy = -Math.max(this.vy * WORLD_BOUNCE_RESTITUTION, WORLD_BOUNCE_MIN_SPEED);
+          this.grounded = false;
+          this.flying = false;
+          this.wallNormal = null;
+          this.pitch = 0;
+        }
+      }
+
+      const overlapsY = this.position.y < maxY && this.position.y + BIKE_COLLISION_HEIGHT > minY;
+      if (!overlapsY) continue;
+
+      if (this.position.z >= minZ && this.position.z <= maxZ) {
+        if (oldPos.x <= minX && this.position.x > minX) {
+          this.position.x = minX;
+          this.reflectHorizontal({ x: -1, z: 0 });
+        } else if (oldPos.x >= maxX && this.position.x < maxX) {
+          this.position.x = maxX;
+          this.reflectHorizontal({ x: 1, z: 0 });
+        }
+      }
+
+      if (this.position.x >= minX && this.position.x <= maxX) {
+        if (oldPos.z <= minZ && this.position.z > minZ) {
+          this.position.z = minZ;
+          this.reflectHorizontal({ x: 0, z: -1 });
+        } else if (oldPos.z >= maxZ && this.position.z < maxZ) {
+          this.position.z = maxZ;
+          this.reflectHorizontal({ x: 0, z: 1 });
+        }
+      }
+    }
+  }
+
+  private resolvePlatformSupport(): void {
+    if (!this.grounded || this.wallNormal || this.position.y <= 0) return;
+
+    for (const p of MAP_PLATFORMS) {
+      const minX = p.x - p.width * 0.5;
+      const maxX = p.x + p.width * 0.5;
+      const maxY = p.y + p.height * 0.5;
+      const minZ = p.z - p.depth * 0.5;
+      const maxZ = p.z + p.depth * 0.5;
+
+      const nearTop = Math.abs(this.position.y - maxY) < 0.05;
+      const withinX = this.position.x >= minX && this.position.x <= maxX;
+      const withinZ = this.position.z >= minZ && this.position.z <= maxZ;
+      if (nearTop && withinX && withinZ) return;
+    }
+
+    this.grounded = false;
+  }
+
+  private reflectHorizontal(normal: Vec2): void {
+    const tangent = { x: -normal.z, z: normal.x };
+    const vn = this.vx * normal.x + this.vz * normal.z;
+    if (vn >= 0) return;
+
+    const reflectedVx = this.vx - (1 + WORLD_BOUNCE_RESTITUTION) * vn * normal.x;
+    const reflectedVz = this.vz - (1 + WORLD_BOUNCE_RESTITUTION) * vn * normal.z;
+
+    const outN = reflectedVx * normal.x + reflectedVz * normal.z;
+    const outT = (reflectedVx * tangent.x + reflectedVz * tangent.z) * WORLD_BOUNCE_TANGENT_DAMPING;
+
+    this.vx = outN * normal.x + outT * tangent.x;
+    this.vz = outN * normal.z + outT * tangent.z;
+
+    this.velocityAngle = Math.atan2(this.vx, this.vz);
+    this.angle = this.velocityAngle;
+  }
+
+  private stickToWall(normal: Vec2): void {
+    if (normal.x !== 0) this.position.x = -normal.x * ARENA_HALF;
+    if (normal.z !== 0) this.position.z = -normal.z * ARENA_HALF;
   }
 
   grantInvulnerability(): void {
@@ -417,6 +605,7 @@ export class Bike {
     this.vz = simBike.vz;
     this.pitch = simBike.pitch;
     this.flying = simBike.flying;
+    this.wallNormal = simBike.wallNormal ? { ...simBike.wallNormal } : null;
 
     // Sync invulnerability visual effect
     this.syncInvulnerabilityFromNet(simBike.invulnerable, simBike.invulnerableTimer);
@@ -551,6 +740,7 @@ export class Bike {
       // Always sync non-positional state from host
       this.vy = state.vy;
       this.grounded = state.grounded;
+      if (this.grounded && state.y <= 0) this.wallNormal = null;
       this.boosting = state.boosting;
       this.boostMeter = state.boostMeter;
       if (state.invulnerable !== undefined) {
@@ -593,6 +783,7 @@ export class Bike {
     }
     this.boosting = state.boosting;
     this.boostMeter = state.boostMeter;
+    if (state.grounded && state.y <= 0) this.wallNormal = null;
     if (state.invulnerable !== undefined) {
       this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
     }
@@ -748,6 +939,7 @@ export class Bike {
     this.deriveVelocityFromAngle();
     this.pitch = 0;
     this.flying = false;
+    this.wallNormal = null;
     this.netBuffer = [];
     this.renderOffset.set(0, 0, 0);
     this.renderAngleOffset = 0;

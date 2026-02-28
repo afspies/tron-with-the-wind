@@ -43,7 +43,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'trails',
     title: 'Trails & Collision',
-    instruction: 'Your bike leaves a trail behind it. Hitting any trail or wall means death! Survive for 8 seconds.',
+    instruction: 'Your bike leaves a trail behind it. Trails are lethal, but side walls are drivable and hard surfaces now bounce you. Survive for 8 seconds.',
     keys: [],
     hint: 'Avoid the trails left by your opponent',
     aiCount: 1,
