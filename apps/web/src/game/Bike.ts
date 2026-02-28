@@ -14,6 +14,7 @@ import {
   WORLD_BOUNCE_RESTITUTION, WORLD_BOUNCE_MIN_SPEED, WORLD_BOUNCE_TANGENT_DAMPING,
   WALL_RIDE_GRAVITY_MULTIPLIER, WALL_RIDE_CLIMB_MULTIPLIER, WALL_RIDE_ATTACH_DOT_MIN,
   WALL_RIDE_STICK_DISTANCE, WALL_HEIGHT, MAP_PLATFORMS,
+  WALL_RAMP_WIDTH, WALL_RAMP_DEPTH, WALL_RAMP_HEIGHT,
 } from '@tron/shared';
 import type { Vec2, PlayerInput } from '@tron/shared';
 import type { SimBike } from '@tron/game-core';
@@ -90,8 +91,13 @@ export class Bike {
   visualPos: THREE.Vector3;
   visualAngle: number;
   private visualInitialized = false;
+  private readonly targetQuat = new THREE.Quaternion();
+  private readonly upVec = new THREE.Vector3();
+  private readonly forwardVec = new THREE.Vector3();
+  private readonly rightVec = new THREE.Vector3();
+  private readonly basisMat = new THREE.Matrix4();
 
-  private netBuffer: Array<{ x: number; z: number; y: number; angle: number; vy: number; grounded: boolean; pitch: number; flying: boolean; tick: number; time: number }> = [];
+  private netBuffer: Array<{ x: number; z: number; y: number; angle: number; vy: number; grounded: boolean; pitch: number; flying: boolean; wallNormalX: number; wallNormalZ: number; tick: number; time: number }> = [];
   private bodyMesh: THREE.Mesh;
   private bikeLight: THREE.PointLight;
   private scene: THREE.Scene;
@@ -169,7 +175,7 @@ export class Bike {
     this.mesh.add(this.bikeLight);
 
     this.mesh.position.copy(this.position);
-    this.mesh.rotation.y = this.angle;
+    this.applyVisualOrientation(1 / 60, true);
     scene.add(this.mesh);
 
     // Trail
@@ -348,7 +354,7 @@ export class Bike {
     this.visualAngle = this.angle + this.renderAngleOffset;
     this.visualInitialized = true;
     this.mesh.position.copy(this.visualPos);
-    this.mesh.rotation.y = this.visualAngle;
+    this.applyVisualOrientation(dt);
 
     this.updateBodyPitch();
     this.updateDriftLean();
@@ -390,9 +396,10 @@ export class Bike {
   }
 
   private resolveFloorContact(): void {
-    if (this.position.y > 0) return;
+    const supportY = this.getGroundSupportY(this.position.x, this.position.z);
+    if (this.position.y > supportY) return;
     const wasOffGround = !this.grounded || this.wallNormal !== null;
-    this.position.y = 0;
+    this.position.y = supportY;
     this.vy = 0;
     this.grounded = true;
     this.pitch = 0;
@@ -520,7 +527,10 @@ export class Bike {
   }
 
   private resolvePlatformSupport(): void {
-    if (!this.grounded || this.wallNormal || this.position.y <= 0) return;
+    if (!this.grounded || this.wallNormal) return;
+
+    const supportY = this.getGroundSupportY(this.position.x, this.position.z);
+    if (Math.abs(this.position.y - supportY) < 0.05) return;
 
     for (const p of MAP_PLATFORMS) {
       const minX = p.x - p.width * 0.5;
@@ -559,6 +569,40 @@ export class Bike {
   private stickToWall(normal: Vec2): void {
     if (normal.x !== 0) this.position.x = -normal.x * ARENA_HALF;
     if (normal.z !== 0) this.position.z = -normal.z * ARENA_HALF;
+  }
+
+  private getGroundSupportY(x: number, z: number): number {
+    return Math.max(0, this.getRampHeightAt(x, z));
+  }
+
+  private getRampHeightAt(x: number, z: number): number {
+    let rampY = 0;
+
+    if (Math.abs(x) <= WALL_RAMP_WIDTH * 0.5) {
+      const northDist = ARENA_HALF - z;
+      if (northDist >= 0 && northDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - northDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+
+      const southDist = ARENA_HALF + z;
+      if (southDist >= 0 && southDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - southDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+    }
+
+    if (Math.abs(z) <= WALL_RAMP_WIDTH * 0.5) {
+      const eastDist = ARENA_HALF - x;
+      if (eastDist >= 0 && eastDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - eastDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+
+      const westDist = ARENA_HALF + x;
+      if (westDist >= 0 && westDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - westDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+    }
+
+    return rampY;
   }
 
   grantInvulnerability(): void {
@@ -614,7 +658,7 @@ export class Bike {
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;
     this.mesh.position.copy(this.position);
-    this.mesh.rotation.y = this.angle;
+    this.applyVisualOrientation(dt, true);
 
     this.updateBodyPitch();
     this.updateDriftLean();
@@ -659,6 +703,11 @@ export class Bike {
   }
 
   private updateBodyPitch(): void {
+    if (this.wallNormal) {
+      this.bodyMesh.rotation.x *= 0.8;
+      return;
+    }
+
     if (this.flying || this.pitch > 0.01) {
       this.bodyMesh.rotation.x = -this.pitch;
     } else if (!this.grounded) {
@@ -670,12 +719,52 @@ export class Bike {
 
   /** Apply body lean based on the angle between heading and velocity. */
   private updateDriftLean(): void {
+    if (this.wallNormal) {
+      this.bodyMesh.rotation.z *= 0.75;
+      return;
+    }
+
     if (this.drifting) {
       const slideAngle = wrapAngle(this.angle - this.velocityAngle);
       this.bodyMesh.rotation.z = slideAngle * 0.4;
     } else {
       this.bodyMesh.rotation.z *= 0.85;
     }
+  }
+
+  private applyVisualOrientation(dt: number, snap = false): void {
+    if (this.wallNormal) {
+      this.upVec.set(this.wallNormal.x, 0, this.wallNormal.z).normalize();
+    } else {
+      this.upVec.set(0, 1, 0);
+    }
+
+    this.forwardVec.set(Math.sin(this.visualAngle), 0, Math.cos(this.visualAngle));
+    this.forwardVec.addScaledVector(this.upVec, -this.forwardVec.dot(this.upVec));
+    if (this.forwardVec.lengthSq() < 1e-5) {
+      if (Math.abs(this.upVec.z) > 0.7) {
+        this.forwardVec.set(1, 0, 0);
+      } else {
+        this.forwardVec.set(0, 0, 1);
+      }
+      this.forwardVec.addScaledVector(this.upVec, -this.forwardVec.dot(this.upVec)).normalize();
+    } else {
+      this.forwardVec.normalize();
+    }
+
+    this.rightVec.crossVectors(this.upVec, this.forwardVec).normalize();
+    this.forwardVec.crossVectors(this.rightVec, this.upVec).normalize();
+
+    this.basisMat.makeBasis(this.rightVec, this.upVec, this.forwardVec);
+    this.targetQuat.setFromRotationMatrix(this.basisMat);
+
+    if (snap) {
+      this.mesh.quaternion.copy(this.targetQuat);
+      return;
+    }
+
+    const blend = this.wallNormal ? 1 - Math.exp(-16 * dt) : 1 - Math.exp(-10 * dt);
+    this.mesh.quaternion.slerp(this.targetQuat, blend);
   }
 
   /** Sync optional drift fields from a net state snapshot. */
@@ -687,6 +776,12 @@ export class Bike {
       this.velocityAngle = state.velocityAngle;
       this.deriveVelocityFromAngle();
     }
+  }
+
+  private setWallNormalFromNet(state: { wallNormalX?: number; wallNormalZ?: number }): void {
+    if (state.wallNormalX === undefined || state.wallNormalZ === undefined) return;
+    const hasWall = Math.abs(state.wallNormalX) > 1e-4 || Math.abs(state.wallNormalZ) > 1e-4;
+    this.wallNormal = hasWall ? { x: state.wallNormalX, z: state.wallNormalZ } : null;
   }
 
   private die(): void {
@@ -704,7 +799,7 @@ export class Bike {
     }
   }
 
-  applyNetState(state: { x: number; z: number; y: number; angle: number; alive: boolean; vy: number; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable?: boolean; invulnerableTimer?: number; doubleJumpCooldown?: number; drifting?: boolean; velocityAngle?: number; pitch?: number; flying?: boolean; tick: number }): void {
+  applyNetState(state: { x: number; z: number; y: number; angle: number; alive: boolean; vy: number; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable?: boolean; invulnerableTimer?: number; doubleJumpCooldown?: number; drifting?: boolean; velocityAngle?: number; pitch?: number; flying?: boolean; wallNormalX?: number; wallNormalZ?: number; tick: number }): void {
     // Death is always authoritative from host
     if (!state.alive && this.alive) {
       this.die();
@@ -740,7 +835,7 @@ export class Bike {
       // Always sync non-positional state from host
       this.vy = state.vy;
       this.grounded = state.grounded;
-      if (this.grounded && state.y <= 0) this.wallNormal = null;
+      this.setWallNormalFromNet(state);
       this.boosting = state.boosting;
       this.boostMeter = state.boostMeter;
       if (state.invulnerable !== undefined) {
@@ -762,17 +857,20 @@ export class Bike {
     if (this.netBuffer.length === 0) {
       this.position.set(state.x, state.y, state.z);
       this.angle = state.angle;
+      this.setWallNormalFromNet(state);
       this.visualPos.copy(this.position);
       this.visualAngle = this.angle;
       this.visualInitialized = true;
       this.mesh.position.copy(this.position);
-      this.mesh.rotation.y = this.angle;
+      this.applyVisualOrientation(1 / 60, true);
     }
     // Push to interpolation buffer (keep last 3 for smooth interpolation)
     this.netBuffer.push({
       x: state.x, z: state.z, y: state.y, angle: state.angle,
       vy: state.vy, grounded: state.grounded,
       pitch: state.pitch ?? 0, flying: state.flying ?? false,
+      wallNormalX: state.wallNormalX ?? 0,
+      wallNormalZ: state.wallNormalZ ?? 0,
       tick: state.tick,
       time: performance.now(),
     });
@@ -783,7 +881,7 @@ export class Bike {
     }
     this.boosting = state.boosting;
     this.boostMeter = state.boostMeter;
-    if (state.grounded && state.y <= 0) this.wallNormal = null;
+    this.setWallNormalFromNet(state);
     if (state.invulnerable !== undefined) {
       this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
     }
@@ -839,6 +937,10 @@ export class Bike {
         this.grounded = t < 0.5 ? a.grounded : b.grounded;
         this.pitch = a.pitch + (b.pitch - a.pitch) * t;
         this.flying = t < 0.5 ? a.flying : b.flying;
+        const wallState = t < 0.5 ? a : b;
+        this.wallNormal = (wallState.wallNormalX !== 0 || wallState.wallNormalZ !== 0)
+          ? { x: wallState.wallNormalX, z: wallState.wallNormalZ }
+          : null;
       } else if (renderTick > b.tick) {
         // Extrapolation: renderTick ahead of buffer, no newer state yet.
         // Use boost-aware speed; cap at 1 tick to avoid overshooting turns.
@@ -855,6 +957,9 @@ export class Bike {
         this.grounded = b.grounded;
         this.pitch = b.pitch;
         this.flying = b.flying;
+        this.wallNormal = (b.wallNormalX !== 0 || b.wallNormalZ !== 0)
+          ? { x: b.wallNormalX, z: b.wallNormalZ }
+          : null;
       } else {
         // renderTick behind buffer — snap to earliest known state
         this.position.x = a.x;
@@ -865,6 +970,9 @@ export class Bike {
         this.grounded = a.grounded;
         this.pitch = a.pitch;
         this.flying = a.flying;
+        this.wallNormal = (a.wallNormalX !== 0 || a.wallNormalZ !== 0)
+          ? { x: a.wallNormalX, z: a.wallNormalZ }
+          : null;
       }
     } else if (this.netBuffer.length >= 2) {
       // Fallback: time-based interpolation when renderTick not available
@@ -883,6 +991,10 @@ export class Bike {
 
       this.pitch = a.pitch + (b.pitch - a.pitch) * tClamped;
       this.flying = tClamped < 0.5 ? a.flying : b.flying;
+      const wallState = tClamped < 0.5 ? a : b;
+      this.wallNormal = (wallState.wallNormalX !== 0 || wallState.wallNormalZ !== 0)
+        ? { x: wallState.wallNormalX, z: wallState.wallNormalZ }
+        : null;
 
       if (t >= 1.0 && this.netBuffer.length >= 3) {
         this.netBuffer.shift();
@@ -895,7 +1007,7 @@ export class Bike {
     this.visualAngle = this.angle;
     this.visualInitialized = true;
     this.mesh.position.copy(this.visualPos);
-    this.mesh.rotation.y = this.visualAngle;
+    this.applyVisualOrientation(dt);
 
     this.updateBodyPitch();
     this.updateDriftLean();
@@ -948,7 +1060,7 @@ export class Bike {
     this.visualInitialized = false;
     this.mesh.visible = true;
     this.mesh.position.copy(this.position);
-    this.mesh.rotation.y = this.angle;
+    this.applyVisualOrientation(1 / 60, true);
     this.trail.reset();
 
     // Clean up death particles

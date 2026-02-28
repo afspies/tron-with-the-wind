@@ -12,6 +12,7 @@ import {
   WORLD_BOUNCE_RESTITUTION, WORLD_BOUNCE_MIN_SPEED, WORLD_BOUNCE_TANGENT_DAMPING,
   WALL_RIDE_GRAVITY_MULTIPLIER, WALL_RIDE_CLIMB_MULTIPLIER, WALL_RIDE_ATTACH_DOT_MIN,
   WALL_RIDE_STICK_DISTANCE, WALL_HEIGHT, MAP_PLATFORMS,
+  WALL_RAMP_WIDTH, WALL_RAMP_DEPTH, WALL_RAMP_HEIGHT,
 } from '@tron/shared';
 import { SimTrail } from './SimTrail';
 import { checkTrailCollision, checkTrailCollisionDetailed, type TrailHitInfo } from './Collision';
@@ -246,9 +247,10 @@ export class SimBike {
   }
 
   private resolveFloorContact(): void {
-    if (this.position.y > 0) return;
+    const supportY = this.getGroundSupportY(this.position.x, this.position.z);
+    if (this.position.y > supportY) return;
     const wasOffGround = !this.grounded || this.wallNormal !== null;
-    this.position.y = 0;
+    this.position.y = supportY;
     this.vy = 0;
     this.grounded = true;
     this.pitch = 0;
@@ -376,7 +378,10 @@ export class SimBike {
   }
 
   private resolvePlatformSupport(): void {
-    if (!this.grounded || this.wallNormal || this.position.y <= 0) return;
+    if (!this.grounded || this.wallNormal) return;
+
+    const supportY = this.getGroundSupportY(this.position.x, this.position.z);
+    if (Math.abs(this.position.y - supportY) < 0.05) return;
 
     for (const p of MAP_PLATFORMS) {
       const minX = p.x - p.width * 0.5;
@@ -415,6 +420,40 @@ export class SimBike {
   private stickToWall(normal: Vec2): void {
     if (normal.x !== 0) this.position.x = -normal.x * ARENA_HALF;
     if (normal.z !== 0) this.position.z = -normal.z * ARENA_HALF;
+  }
+
+  private getGroundSupportY(x: number, z: number): number {
+    return Math.max(0, this.getRampHeightAt(x, z));
+  }
+
+  private getRampHeightAt(x: number, z: number): number {
+    let rampY = 0;
+
+    if (Math.abs(x) <= WALL_RAMP_WIDTH * 0.5) {
+      const northDist = ARENA_HALF - z;
+      if (northDist >= 0 && northDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - northDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+
+      const southDist = ARENA_HALF + z;
+      if (southDist >= 0 && southDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - southDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+    }
+
+    if (Math.abs(z) <= WALL_RAMP_WIDTH * 0.5) {
+      const eastDist = ARENA_HALF - x;
+      if (eastDist >= 0 && eastDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - eastDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+
+      const westDist = ARENA_HALF + x;
+      if (westDist >= 0 && westDist <= WALL_RAMP_DEPTH) {
+        rampY = Math.max(rampY, (1 - westDist / WALL_RAMP_DEPTH) * WALL_RAMP_HEIGHT);
+      }
+    }
+
+    return rampY;
   }
 
   grantInvulnerability(): void {

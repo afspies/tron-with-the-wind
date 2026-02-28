@@ -1,5 +1,15 @@
 import * as THREE from 'three';
-import { ARENA_SIZE, ARENA_HALF, WALL_HEIGHT, ARENA_CEILING_HEIGHT, MAP_PLATFORMS } from '@tron/shared';
+import {
+  ARENA_SIZE,
+  ARENA_HALF,
+  WALL_HEIGHT,
+  ARENA_CEILING_HEIGHT,
+  MAP_PLATFORMS,
+  WALL_RAMP_WIDTH,
+  WALL_RAMP_DEPTH,
+  WALL_RAMP_HEIGHT,
+  WALL_RAMP_THICKNESS,
+} from '@tron/shared';
 
 const gridWallVertex = /* glsl */ `
   varying vec2 vUv;
@@ -30,6 +40,7 @@ export class Arena {
   walls: THREE.Mesh[] = [];
   ceiling: THREE.Mesh;
   platforms: THREE.Mesh[] = [];
+  ramps: THREE.Mesh[] = [];
 
   constructor(scene: THREE.Scene) {
     // Ground plane with grid pattern
@@ -93,6 +104,31 @@ export class Arena {
       bottomEdge.position.set(cfg.x, 0.075, cfg.z);
       bottomEdge.rotation.y = cfg.rotY;
       scene.add(bottomEdge);
+    }
+
+    const rampMat = new THREE.MeshStandardMaterial({
+      color: 0x2a3f55,
+      emissive: 0x30506c,
+      emissiveIntensity: 0.25,
+      roughness: 0.55,
+      metalness: 0.3,
+    });
+    const rampGeo = new THREE.BoxGeometry(WALL_RAMP_WIDTH, WALL_RAMP_THICKNESS, WALL_RAMP_DEPTH);
+    const rampSlope = Math.atan2(WALL_RAMP_HEIGHT, WALL_RAMP_DEPTH);
+    const rampConfigs = [
+      { x: 0, z: ARENA_HALF - WALL_RAMP_DEPTH * 0.5, rotY: 0 },
+      { x: 0, z: -ARENA_HALF + WALL_RAMP_DEPTH * 0.5, rotY: Math.PI },
+      { x: ARENA_HALF - WALL_RAMP_DEPTH * 0.5, z: 0, rotY: -Math.PI / 2 },
+      { x: -ARENA_HALF + WALL_RAMP_DEPTH * 0.5, z: 0, rotY: Math.PI / 2 },
+    ];
+
+    for (const cfg of rampConfigs) {
+      const ramp = new THREE.Mesh(rampGeo, rampMat.clone());
+      ramp.position.set(cfg.x, WALL_RAMP_HEIGHT * 0.5, cfg.z);
+      ramp.rotation.y = cfg.rotY;
+      ramp.rotation.x = -rampSlope;
+      scene.add(ramp);
+      this.ramps.push(ramp);
     }
 
     const ceilingGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE, 40, 40);

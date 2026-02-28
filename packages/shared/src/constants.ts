@@ -30,6 +30,12 @@ export const WALL_RIDE_CLIMB_MULTIPLIER = 0.9;
 export const WALL_RIDE_ATTACH_DOT_MIN = 0.15;
 export const WALL_RIDE_STICK_DISTANCE = 1.2;
 
+// Wall entry ramps
+export const WALL_RAMP_WIDTH = 88;
+export const WALL_RAMP_DEPTH = 26;
+export const WALL_RAMP_HEIGHT = 7.5;
+export const WALL_RAMP_THICKNESS = 1.6;
+
 export const PLAYER_COLORS = [
   '#50C878', // emerald
   '#E0115F', // ruby

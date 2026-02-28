@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SimBike } from '@tron/game-core';
-import { NO_INPUT, ARENA_HALF, ARENA_CEILING_HEIGHT, BIKE_COLLISION_HEIGHT, MAP_PLATFORMS } from '@tron/shared';
+import {
+  NO_INPUT,
+  ARENA_HALF,
+  ARENA_CEILING_HEIGHT,
+  BIKE_COLLISION_HEIGHT,
+  MAP_PLATFORMS,
+  WALL_RAMP_DEPTH,
+  WALL_RAMP_HEIGHT,
+} from '@tron/shared';
 import type { SimPowerUpEffect } from '@tron/game-core';
 
 function createMockEffect(opts?: { updatesRemaining?: number }): SimPowerUpEffect & { grantCalls: number; expireCalls: number } {
@@ -107,6 +115,15 @@ describe('SimBike activeEffect handling', () => {
     expect(bike.alive).toBe(true);
     expect(bike.wallNormal).not.toBeNull();
     expect(Math.abs(bike.position.x)).toBeCloseTo(ARENA_HALF, 4);
+  });
+
+  it('rides up wall-entry ramps before reaching the wall', () => {
+    const bike = new SimBike(0, '#ff0000', 0, ARENA_HALF - WALL_RAMP_DEPTH * 0.5, 0);
+    bike.update(0.016, NO_INPUT, [], true);
+
+    expect(bike.grounded).toBe(true);
+    expect(bike.position.y).toBeGreaterThan(0.5);
+    expect(bike.position.y).toBeLessThanOrEqual(WALL_RAMP_HEIGHT + 0.1);
   });
 
   it('bounces off the ceiling instead of dying', () => {
