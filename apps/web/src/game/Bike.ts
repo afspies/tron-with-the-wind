@@ -664,7 +664,7 @@ export class Bike {
     }
 
     fwd = vec3Normalize(projected);
-    const right = vec3Normalize(vec3Cross(fwd, newNormal));
+    const right = vec3Normalize(vec3Cross(newNormal, fwd));
     this.orientationQuat = quatNormalize(quatFromBasis(right, newNormal, fwd));
   }
 

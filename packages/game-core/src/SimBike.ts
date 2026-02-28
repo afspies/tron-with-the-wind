@@ -418,7 +418,7 @@ export class SimBike {
     }
 
     fwd = vec3Normalize(projected);
-    const right = vec3Normalize(vec3Cross(fwd, newNormal));
+    const right = vec3Normalize(vec3Cross(newNormal, fwd));
     this.orientation = quatNormalize(quatFromBasis(right, newNormal, fwd));
   }
 

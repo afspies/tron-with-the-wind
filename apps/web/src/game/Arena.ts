@@ -176,7 +176,7 @@ export class Arena {
           ny = Math.cos(theta);
           nz = 0;
           px = centerOnAxis + Math.sin(theta) * R * sign;
-          py = centerY + Math.cos(theta) * R;
+          py = centerY - Math.cos(theta) * R;
           pz = lengthPos;
         } else {
           // Curve along Z axis, extends along X
@@ -184,7 +184,7 @@ export class Arena {
           ny = Math.cos(theta);
           nz = -Math.sin(theta) * sign;
           px = lengthPos;
-          py = centerY + Math.cos(theta) * R;
+          py = centerY - Math.cos(theta) * R;
           pz = centerOnAxis + Math.sin(theta) * R * sign;
         }
 

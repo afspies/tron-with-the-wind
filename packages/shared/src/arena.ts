@@ -130,7 +130,7 @@ function handleXBoundary(pos: Vec3, sx: number, ax: number, y: number): SurfaceI
     }
 
     const nx = (dx / dist) * -sx;
-    const ny = dy / dist;
+    const ny = -dy / dist;
     // Contact point on the curve surface
     const cpx = (cx + dx / dist * R) * sx;
     const cpy = cy + dy / dist * R;
@@ -163,7 +163,7 @@ function handleXBoundary(pos: Vec3, sx: number, ax: number, y: number): SurfaceI
     }
 
     const nx = (dx / dist) * -sx;
-    const ny = dy / dist;
+    const ny = -dy / dist;
     const cpx = (cx + dx / dist * R) * sx;
     const cpy = cy + dy / dist * R;
 
@@ -215,7 +215,7 @@ function handleZBoundary(pos: Vec3, sz: number, az: number, y: number): SurfaceI
     }
 
     const nz = (dz / dist) * -sz;
-    const ny = dy / dist;
+    const ny = -dy / dist;
     const cpz = (cz + dz / dist * R) * sz;
     const cpy = cy + dy / dist * R;
 
@@ -247,7 +247,7 @@ function handleZBoundary(pos: Vec3, sz: number, az: number, y: number): SurfaceI
     }
 
     const nz = (dz / dist) * -sz;
-    const ny = dy / dist;
+    const ny = -dy / dist;
     const cpz = (cz + dz / dist * R) * sz;
     const cpy = cy + dy / dist * R;
 
