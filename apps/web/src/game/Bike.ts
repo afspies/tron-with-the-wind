@@ -11,14 +11,14 @@ import {
   FLIGHT_PITCH_RATE, FLIGHT_MAX_PITCH,
   FLIGHT_THRUST, FLIGHT_AIR_TURN_MULT, FLIGHT_BOOST_DRAIN_MULT,
   FLIGHT_LANDING_MAX_PITCH,
-  WALL_GRAVITY, BOUNCE_DAMPING, SURFACE_ATTACH_MAX_ANGLE,
+  WALL_GRAVITY, BOUNCE_DAMPING, AIRBORNE_LEVEL_RATE,
 } from '@tron/shared';
 import type { Vec2, Vec3, Quat, PlayerInput } from '@tron/shared';
 import {
   quatIdentity, quatFromAxisAngle, quatMultiply, quatNormalize, quatInverse,
   quatRotateVec3, quatFromBasis, quatToYawAngle, quatSlerp, quatDot,
   vec3Add, vec3Sub, vec3Scale, vec3Dot, vec3Cross, vec3Normalize,
-  vec3Length, vec3LengthSq, vec3ProjectOnPlane, vec3Reflect,
+  vec3Length, vec3LengthSq, vec3ProjectOnPlane, vec3Reflect, vec3Lerp,
 } from '@tron/shared';
 import { computeSurfaceInfo, snapToSurface, isDrivable, SurfaceId } from '@tron/shared';
 import type { SimBike } from '@tron/game-core';
@@ -411,44 +411,37 @@ export class Bike {
       this.vz = this.airborneVelocity.z;
       this.velocityAngle = Math.atan2(this.airborneVelocity.x, this.airborneVelocity.z);
 
+      // Airborne leveling: slerp surface normal toward world up so bike levels out
+      if (!this.flying) {
+        const worldUp: Vec3 = { x: 0, y: 1, z: 0 };
+        const t = 1 - Math.exp(-AIRBORNE_LEVEL_RATE * dt);
+        this.surfaceNormal = vec3Normalize(vec3Lerp(this.surfaceNormal, worldUp, t));
+        this.reorthogonalizeOrientation(this.surfaceNormal);
+      }
+
       // Check surface contact
       const pos: Vec3 = { x: this.position.x, y: this.position.y, z: this.position.z };
       const info = computeSurfaceInfo(pos);
       if (info.distance <= 0) {
         if (info.drivable) {
-          const velDir = vec3Normalize(this.airborneVelocity);
-          const approachDot = Math.abs(vec3Dot(velDir, info.normal));
-
-          if (approachDot < SURFACE_ATTACH_MAX_ANGLE) {
-            // Attach: shallow approach, land on surface
-            if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
-              this.die();
-              return;
-            }
-            const snapped = snapToSurface(pos, info);
-            this.position.set(snapped.x, snapped.y, snapped.z);
-            this.velocity = vec3ProjectOnPlane(this.airborneVelocity, info.normal);
-            this.surfaceNormal = info.normal;
-            this.surfaceId = info.surfaceId;
-            this.grounded = true;
-            this.vy = 0;
-            this.pitch = 0;
-            this.flying = false;
-            this.jumpCooldown = JUMP_COOLDOWN;
-            this.reorthogonalizeOrientation(info.normal);
-          } else {
-            // Bounce: steep approach
-            this.airborneVelocity = vec3Scale(
-              vec3Reflect(this.airborneVelocity, info.normal),
-              BOUNCE_DAMPING,
-            );
-            this.vy = this.airborneVelocity.y;
-            const snapped = snapToSurface(pos, info);
-            const pushed = vec3Add(snapped, vec3Scale(info.normal, 0.1));
-            this.position.set(pushed.x, pushed.y, pushed.z);
+          // Always attach to drivable surfaces (floor, walls, curves)
+          if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
+            this.die();
+            return;
           }
+          const snapped = snapToSurface(pos, info);
+          this.position.set(snapped.x, snapped.y, snapped.z);
+          this.velocity = vec3ProjectOnPlane(this.airborneVelocity, info.normal);
+          this.surfaceNormal = info.normal;
+          this.surfaceId = info.surfaceId;
+          this.grounded = true;
+          this.vy = 0;
+          this.pitch = 0;
+          this.flying = false;
+          this.jumpCooldown = JUMP_COOLDOWN;
+          this.reorthogonalizeOrientation(info.normal);
         } else {
-          // Non-drivable surface: always bounce
+          // Non-drivable surface (ceiling): always bounce
           this.airborneVelocity = vec3Scale(
             vec3Reflect(this.airborneVelocity, info.normal),
             BOUNCE_DAMPING,

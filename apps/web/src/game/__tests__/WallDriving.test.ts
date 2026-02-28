@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { SimBike } from '@tron/game-core';
 import {
   NO_INPUT, BIKE_SPEED, TURN_RATE, ARENA_HALF, CURVE_RADIUS, CEILING_HEIGHT,
+  JUMP_INITIAL_VY, GRAVITY,
   computeSurfaceInfo, SurfaceId, snapToSurface,
   quatFromAxisAngle, quatRotateVec3, quatToYawAngle, vec3Length, vec3Dot,
 } from '@tron/shared';
@@ -305,7 +306,9 @@ describe('Wall driving transitions', () => {
     let prevNormalY = 1; // start facing floor (normal = up)
     let maxNormalJump = 0;
 
-    for (let i = 0; i < 300; i++) {
+    // Run enough frames for floor→curve→wall transition but not so many
+    // that the bike reaches the ceiling (where airborne leveling would cause a jump)
+    for (let i = 0; i < 120; i++) {
       bike.update(DT, NO_INPUT, [], true);
       if (bike.grounded) {
         const normalJump = Math.abs(bike.surfaceNormal.y - prevNormalY);
@@ -396,5 +399,115 @@ describe('Jump mechanics on surfaces', () => {
 
     expect(bike.grounded).toBe(true);
     expect(bike.position.y).toBeCloseTo(0, 0);
+  });
+});
+
+// ---------- Airborne leveling ----------
+
+describe('Airborne leveling', () => {
+  it('bike levels out toward upright after jumping off a wall', () => {
+    // Place bike on the +X wall, facing +Z (along the wall)
+    const wallX = ARENA_HALF - 0.5;
+    const wallY = CURVE_RADIUS + 5;
+    const bike = new SimBike(0, '#ff0000', wallX, 0, 0);
+    // Constructor sets y=0; manually place on wall
+    bike.position = { x: wallX, y: wallY, z: 0 };
+
+    // Set up as if on wall: surface normal pointing inward (-X)
+    bike.surfaceNormal = { x: -1, y: 0, z: 0 };
+    bike.surfaceId = SurfaceId.WALL_POS_X;
+    bike.grounded = true;
+    bike.velocity = { x: 0, y: 0, z: BIKE_SPEED };
+
+    // Jump off the wall
+    bike.update(DT, makeInput({ jump: true }), [], true);
+    expect(bike.grounded).toBe(false);
+
+    // Surface normal should start tilted (from wall)
+    expect(Math.abs(bike.surfaceNormal.x)).toBeGreaterThan(0.5);
+
+    // Simulate 1 second of freefall
+    for (let i = 0; i < 60; i++) {
+      bike.update(DT, NO_INPUT, [], true);
+      if (bike.grounded) break;
+    }
+
+    // Surface normal should have leveled significantly toward (0, 1, 0)
+    expect(bike.surfaceNormal.y).toBeGreaterThan(0.9);
+  });
+});
+
+// ---------- Floor landing (no bounce) ----------
+
+describe('Floor landing without bounce', () => {
+  it('bike lands on floor from steep vertical drop without bouncing', () => {
+    // Place bike high above the floor, moving straight down
+    const bike = new SimBike(0, '#ff0000', 0, 10, 0);
+    bike.grounded = false;
+    bike.airborneVelocity = { x: 0, y: -15, z: BIKE_SPEED };
+    bike.vy = -15;
+
+    // Simulate until landing
+    let landed = false;
+    for (let i = 0; i < 120; i++) {
+      bike.update(DT, NO_INPUT, [], true);
+      if (bike.grounded) {
+        landed = true;
+        break;
+      }
+    }
+
+    expect(landed).toBe(true);
+    expect(bike.position.y).toBeCloseTo(0, 0);
+  });
+});
+
+// ---------- Wall attachment ----------
+
+describe('Wall attachment from airborne', () => {
+  it('bike attaches to wall when contacting it while airborne', () => {
+    const FLAT_HALF = ARENA_HALF - CURVE_RADIUS;
+    // Place bike airborne near the +X wall, moving toward it
+    const bike = new SimBike(0, '#ff0000', ARENA_HALF - 2, CURVE_RADIUS + 5, Math.PI / 2);
+    bike.grounded = false;
+    bike.airborneVelocity = { x: BIKE_SPEED, y: 0, z: 0 };
+    bike.vy = 0;
+
+    // Simulate until it hits the wall
+    let attached = false;
+    for (let i = 0; i < 60; i++) {
+      bike.update(DT, NO_INPUT, [], true);
+      if (bike.grounded && bike.surfaceId === SurfaceId.WALL_POS_X) {
+        attached = true;
+        break;
+      }
+    }
+
+    expect(attached).toBe(true);
+  });
+});
+
+// ---------- Ceiling bounce ----------
+
+describe('Ceiling bounce', () => {
+  it('bike bounces off ceiling instead of attaching', () => {
+    // Place bike near the ceiling, moving upward
+    const bike = new SimBike(0, '#ff0000', 0, 0, 0);
+    bike.position = { x: 0, y: CEILING_HEIGHT - 2, z: 0 };
+    bike.grounded = false;
+    bike.airborneVelocity = { x: 0, y: 10, z: BIKE_SPEED };
+    bike.vy = 10;
+
+    // Simulate a few frames
+    for (let i = 0; i < 30; i++) {
+      bike.update(DT, NO_INPUT, [], true);
+    }
+
+    // Should NOT have attached to ceiling — should still be airborne or landed on floor
+    expect(bike.surfaceId).not.toBe(SurfaceId.CEILING);
+    // If still airborne, vy should be negative (bounced back down)
+    if (!bike.grounded) {
+      expect(bike.vy).toBeLessThan(0);
+    }
   });
 });

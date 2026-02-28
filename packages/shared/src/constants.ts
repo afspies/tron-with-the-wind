@@ -99,4 +99,4 @@ export const CURVE_RADIUS = 8;           // quarter-cylinder radius at floor-wal
 export const CEILING_HEIGHT = 30;        // arena ceiling height
 export const WALL_GRAVITY = 5;           // downward force on wall-riding bikes
 export const BOUNCE_DAMPING = 0.5;       // velocity retained after bouncing off a surface
-export const SURFACE_ATTACH_MAX_ANGLE = 0.5; // max dot(velocity, surfaceNormal) to attach (~60 deg)
+export const AIRBORNE_LEVEL_RATE = 3.0;  // rate at which airborne bikes level out toward upright
