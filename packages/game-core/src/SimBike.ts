@@ -308,7 +308,7 @@ export class SimBike {
     if (input.pitchUp) {
       this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
     } else if (input.pitchDown) {
-      this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RATE * dt);
+      this.pitch = Math.max(-FLIGHT_MAX_PITCH, this.pitch - FLIGHT_PITCH_RATE * dt);
     }
 
     const currentSpeed = this.speed * (this.boosting ? BOOST_MULTIPLIER : 1.0);
@@ -362,7 +362,7 @@ export class SimBike {
 
     // Floor landing
     if (this.position.y <= 0) {
-      if (this.pitch > FLIGHT_LANDING_MAX_PITCH) {
+      if (Math.abs(this.pitch) > FLIGHT_LANDING_MAX_PITCH) {
         this.die();
         return;
       }
@@ -379,25 +379,27 @@ export class SimBike {
 
     const newPos: Vec2 = { x: this.position.x, z: this.position.z };
 
-    // Collision
-    if (!skipCollision) {
-      // Wall boundary: try to attach to surface while airborne
-      if (checkWallCollision(this.position.x, this.position.z)) {
-        if (this.invulnerable) {
-          this.position.x = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.x));
-          this.position.z = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.z));
-        } else if (this.position.y > 0 && this.canWallDrive) {
-          this.attachToSurface();
-        } else if (this.position.y > 0) {
-          // Can't wall drive -- bounce off wall
-          this.bounceOffWall();
-        } else {
-          this.die();
-          return;
-        }
+    // Wall boundary: always check (physics constraint, not trail collision)
+    if (checkWallCollision(this.position.x, this.position.z)) {
+      if (this.invulnerable) {
+        this.position.x = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.x));
+        this.position.z = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.z));
+      } else if (this.position.y > 0 && this.canWallDrive) {
+        this.attachToSurface();
+      } else if (this.position.y > 0) {
+        this.bounceOffWall();
+      } else if (!skipCollision) {
+        this.die();
+        return;
+      } else {
+        // Predicted bike at ground level near wall: clamp (server authoritative for death)
+        this.position.x = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.x));
+        this.position.z = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.z));
       }
+    }
 
-      // Trail collision
+    // Trail collision (skipped for predicted bikes — server authoritative)
+    if (!skipCollision) {
       this.checkTrailCollisionFloor(oldPos, newPos, allTrails);
       if (!this.alive) return;
     }

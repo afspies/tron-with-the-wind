@@ -161,7 +161,7 @@ export class Bike {
     this.mesh.add(this.bikeLight);
 
     this.mesh.position.copy(this.position);
-    this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.angle, 0));
+    this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.angle + Math.PI, 0));
     this.currentQuaternion.copy(this.targetQuaternion);
     this.mesh.quaternion.copy(this.currentQuaternion);
     this.forward = { x: Math.sin(angle), y: 0, z: Math.cos(angle) };
@@ -321,13 +321,16 @@ export class Bike {
 
   /** Compute mesh orientation from surface state using continuous surface normal. */
   private updateMeshOrientation(dt: number): void {
-    // Compute continuous normal from position (smooth through ramps)
-    const surfInfo = getArenaSurfaceInfo({
-      x: this.position.x, y: this.position.y, z: this.position.z,
-    });
-    this.surfaceNormal = surfInfo.normal;
-
     const isOnSurface = this.surfaceType !== SurfaceType.Air && this.grounded;
+
+    if (isOnSurface && this.surfaceNormal.y > 0.7) {
+      // Floor: recompute normal for smooth ramp transitions
+      const surfInfo = getArenaSurfaceInfo({
+        x: this.position.x, y: this.position.y, z: this.position.z,
+      });
+      this.surfaceNormal = surfInfo.normal;
+    }
+    // On walls: use surfaceNormal from physics (already set by copyPhysicsState)
 
     if (isOnSurface) {
       // Build rotation from forward projected onto surface plane + surface normal
@@ -411,7 +414,7 @@ export class Bike {
       this.visualAngle = this.angle;
       this.visualInitialized = true;
       this.mesh.position.copy(this.position);
-      this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.angle, 0));
+      this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.angle + Math.PI, 0));
       this.currentQuaternion.copy(this.targetQuaternion);
       this.mesh.quaternion.copy(this.currentQuaternion);
     }
@@ -575,7 +578,7 @@ export class Bike {
     this.surfaceType = SurfaceType.Floor;
     this.surfaceNormal = { x: 0, y: 1, z: 0 };
     this.forward = { x: Math.sin(angle), y: 0, z: Math.cos(angle) };
-    this.targetQuaternion.setFromEuler(new THREE.Euler(0, angle, 0));
+    this.targetQuaternion.setFromEuler(new THREE.Euler(0, angle + Math.PI, 0));
     this.currentQuaternion.copy(this.targetQuaternion);
     this.netBuffer = [];
     this.renderOffset.set(0, 0, 0);

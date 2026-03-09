@@ -15,7 +15,7 @@ export interface KeyMapping {
 }
 
 export const DEFAULT_KEY_MAPS: KeyMapping[] = [
-  { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space', 'ArrowUp'], boost: ['ShiftLeft', 'ArrowDown'], drift: ['AltLeft', 'AltRight'], pitchUp: ['KeyS'], pitchDown: ['KeyW'] },
+  { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space', 'ArrowUp'], boost: ['ShiftLeft', 'ArrowDown'], drift: ['AltLeft', 'AltRight'], pitchUp: ['KeyW'], pitchDown: ['KeyS'] },
   { left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Slash'], boost: ['ShiftRight'], drift: ['Period'], pitchUp: [], pitchDown: [] },
   { left: ['KeyJ'], right: ['KeyL'], jump: ['KeyH'], boost: ['KeyU'], drift: ['KeyK'], pitchUp: [], pitchDown: [] },
   { left: ['Numpad4'], right: ['Numpad6'], jump: ['Numpad0'], boost: ['Numpad1'], drift: ['Numpad2'], pitchUp: [], pitchDown: [] },
