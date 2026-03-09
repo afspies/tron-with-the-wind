@@ -47,7 +47,7 @@ export const NET_TICK_DURATION_MS = 1000 / 30; // ~33.33ms per tick
 // Local predicted bike: snap physics to server, decay render offset smoothly
 export const VISUAL_CORRECTION_RATE = 18; // exponential decay speed for render offset
 export const RENDER_OFFSET_SNAP_THRESHOLD = 10; // error above which we teleport (zero offset)
-export const RENDER_OFFSET_MIN_CORRECTION = 0.1; // error below which we skip correction
+export const RENDER_OFFSET_MIN_CORRECTION = 0.01; // error below which we skip correction
 
 // Remote bikes: fractional render tick interpolation
 export const REMOTE_TICK_CORRECTION_RATE = 0.1; // drift correction blend per server tick
@@ -72,7 +72,7 @@ export const FLIGHT_MAX_PITCH = 1.22;          // ~70°, prevents fully vertical
 export const FLIGHT_THRUST = 32.0;             // upward acceleration (vs GRAVITY=20)
 export const FLIGHT_AIR_TURN_MULT = 0.5;       // yaw turn rate halved during flight
 export const FLIGHT_BOOST_DRAIN_MULT = 1.3;    // boost drains 30% faster during flight
-export const FLIGHT_LANDING_MAX_PITCH = 1.22;  // ~70°, match FLIGHT_MAX_PITCH
+export const FLIGHT_LANDING_MAX_PITCH = 0.79;  // ~45°, steep landings kill
 
 // Trail ramp
 export const TRAIL_RAMP_SEGMENTS = 5; // segments at trail end that ramp height
