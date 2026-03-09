@@ -162,50 +162,11 @@ export class Trail {
         continue;
       }
 
-      // Height ramp for segments near the end (closest to bike)
-      const distFromEnd1 = totalSegs - i;
-      const distFromEnd2 = totalSegs - (i + 1);
-      const h1 = distFromEnd1 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd1 / TRAIL_RAMP_SEGMENTS);
-      const h2 = distFromEnd2 >= TRAIL_RAMP_SEGMENTS ? TRAIL_HEIGHT : TRAIL_HEIGHT * (distFromEnd2 / TRAIL_RAMP_SEGMENTS);
-
-      // Use surface normal at each point to determine extrusion direction
-      // Compute normals for both p1 and p2 so adjacent segments share extrusion at boundary
-      const surf1 = getArenaSurfaceInfo(p1 as { x: number; y: number; z: number });
-      const surf2 = getArenaSurfaceInfo(p2 as { x: number; y: number; z: number });
-      const n1 = surf1.normal;
-      const n2 = surf2.normal;
-
-      // Extrude p1 vertices along n1, p2 vertices along n2
-      const verts = [
-        p1.x, p1.y, p1.z,
-        p1.x + n1.x * h1, p1.y + n1.y * h1, p1.z + n1.z * h1,
-        p2.x + n2.x * h2, p2.y + n2.y * h2, p2.z + n2.z * h2,
-        p1.x, p1.y, p1.z,
-        p2.x + n2.x * h2, p2.y + n2.y * h2, p2.z + n2.z * h2,
-        p2.x, p2.y, p2.z,
-      ];
-
-      // Face normal: perpendicular to both the segment direction and the extrusion direction
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const dz = p2.z - p1.z;
-      // cross(segment_dir, surface_normal) gives face normal
-      let nx = dy * n1.z - dz * n1.y;
-      let ny = dz * n1.x - dx * n1.z;
-      let nz = dx * n1.y - dy * n1.x;
-      const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      if (nLen > 0.001) { nx /= nLen; ny /= nLen; nz /= nLen; }
-      else { nx = 0; ny = 0; nz = 1; }
-
-      for (let j = 0; j < 18; j++) {
-        posArr[baseIdx + j] = verts[j];
-      }
-
-      for (let j = 0; j < 6; j++) {
-        normArr[baseIdx + j * 3] = nx;
-        normArr[baseIdx + j * 3 + 1] = ny;
-        normArr[baseIdx + j * 3 + 2] = nz;
-      }
+      const h1 = this.rampHeight(totalSegs - i);
+      const h2 = this.rampHeight(totalSegs - (i + 1));
+      const sn1 = getArenaSurfaceInfo(p1 as { x: number; y: number; z: number }).normal;
+      const sn2 = getArenaSurfaceInfo(p2 as { x: number; y: number; z: number }).normal;
+      this.writeSegment(posArr, normArr, baseIdx, p1, p2, h1, h2, sn1, sn2);
     }
 
     positions.needsUpdate = true;

@@ -57,7 +57,6 @@ export class GameCamera {
     });
   }
 
-  /** 0 = chase, 1 = fully first-person */
   get fpBlendValue(): number {
     return this.fpBlend;
   }
@@ -185,39 +184,33 @@ export class GameCamera {
       this.targetPosition.lerpVectors(chasePos, fpPos, t);
       this.targetLookAt.lerpVectors(lookAhead, fpLook, t);
     } else {
-      // Floor/Air: original chase logic
+      // Floor/Air: chase logic with orbit and altitude scaling
       const orbitAngle = ang + this.orbitOffset;
-      const altitude = pos.y;
-      const extraDist = Math.min(altitude * 0.3, 8);
-      const extraHeight = Math.min(altitude * 0.6, 15);
+      const extraDist = Math.min(pos.y * 0.3, 8);
+      const extraHeight = Math.min(pos.y * 0.6, 15);
       const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist;
-      const chasePosX = pos.x - Math.sin(orbitAngle) * distance;
-      const chasePosZ = pos.z - Math.cos(orbitAngle) * distance;
-      const chasePosY = CHASE_HEIGHT + extraHeight + pos.y * 0.5;
+
+      const chasePos = new THREE.Vector3(
+        pos.x - Math.sin(orbitAngle) * distance,
+        CHASE_HEIGHT + extraHeight + pos.y * 0.5,
+        pos.z - Math.cos(orbitAngle) * distance,
+      );
       const chaseLookAt = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
 
-      const fpPosX = pos.x + Math.sin(ang) * FP_FORWARD_OFFSET;
-      const fpPosZ = pos.z + Math.cos(ang) * FP_FORWARD_OFFSET;
-      const fpPosY = pos.y + FP_HEIGHT;
-      const lookDist = 50;
       const fpLookAngle = ang + this.orbitOffset;
+      const fpPos = new THREE.Vector3(
+        pos.x + Math.sin(ang) * FP_FORWARD_OFFSET,
+        pos.y + FP_HEIGHT,
+        pos.z + Math.cos(ang) * FP_FORWARD_OFFSET,
+      );
       const fpLookAt = new THREE.Vector3(
-        pos.x + Math.sin(fpLookAngle) * lookDist,
+        pos.x + Math.sin(fpLookAngle) * 50,
         pos.y + FP_HEIGHT * 0.8,
-        pos.z + Math.cos(fpLookAngle) * lookDist,
+        pos.z + Math.cos(fpLookAngle) * 50,
       );
 
-      const t = this.fpBlend;
-      this.targetPosition.set(
-        chasePosX + (fpPosX - chasePosX) * t,
-        chasePosY + (fpPosY - chasePosY) * t,
-        chasePosZ + (fpPosZ - chasePosZ) * t,
-      );
-      this.targetLookAt.set(
-        chaseLookAt.x + (fpLookAt.x - chaseLookAt.x) * t,
-        chaseLookAt.y + (fpLookAt.y - chaseLookAt.y) * t,
-        chaseLookAt.z + (fpLookAt.z - chaseLookAt.z) * t,
-      );
+      this.targetPosition.lerpVectors(chasePos, fpPos, this.fpBlend);
+      this.targetLookAt.lerpVectors(chaseLookAt, fpLookAt, this.fpBlend);
     }
 
     // Faster position lerp during drift to keep up with large rotations

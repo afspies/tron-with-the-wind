@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, MAX_PLAYERS, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD } from '@tron/shared';
-import { Simulation } from '@tron/game-core';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD, RENDER_OFFSET_SNAP_THRESHOLD, RENDER_OFFSET_MIN_CORRECTION, wrapAngle } from '@tron/shared';
+import { Simulation, SimBike as SimBikeClass, SimTrail } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
 import { setupLighting } from '../scene/Lighting';
@@ -25,29 +25,19 @@ import { TutorialManager } from '../ui/Tutorial';
 import { Stadium } from './Stadium';
 import { Crowd } from './Crowd';
 
-/** Build an applyNetState snapshot from a Colyseus schema bike + room tick. */
-function netStateFromSchema(sb: any, tick: number): {
-  x: number; z: number; y: number; angle: number;
-  alive: boolean; vy: number; grounded: boolean;
-  boostMeter: number; boosting: boolean;
-  invulnerable: boolean; invulnerableTimer: number;
-  doubleJumpCooldown: number;
-  drifting: boolean; velocityAngle: number;
-  pitch: number; flying: boolean;
-  surfaceType: number;
-  forwardX: number; forwardY: number; forwardZ: number;
-  tick: number;
-} {
+/** Build a net state snapshot from a Colyseus schema bike + room tick. */
+function netStateFromSchema(sb: any, tick: number) {
   return {
-    x: sb.x, z: sb.z, y: sb.y, angle: sb.angle,
-    alive: sb.alive, vy: sb.vy, grounded: sb.grounded,
-    boostMeter: sb.boostMeter, boosting: sb.boosting,
-    invulnerable: sb.invulnerable, invulnerableTimer: sb.invulnerableTimer,
-    doubleJumpCooldown: sb.doubleJumpCooldown,
-    drifting: sb.drifting, velocityAngle: sb.velocityAngle,
-    pitch: sb.pitch, flying: sb.flying,
-    surfaceType: sb.surfaceType,
-    forwardX: sb.forwardX, forwardY: sb.forwardY, forwardZ: sb.forwardZ,
+    x: sb.x as number, z: sb.z as number, y: sb.y as number, angle: sb.angle as number,
+    alive: sb.alive as boolean, vy: sb.vy as number, grounded: sb.grounded as boolean,
+    boostMeter: sb.boostMeter as number, boosting: sb.boosting as boolean,
+    invulnerable: sb.invulnerable as boolean, invulnerableTimer: sb.invulnerableTimer as number,
+    doubleJumpCooldown: sb.doubleJumpCooldown as number,
+    drifting: sb.drifting as boolean, velocityAngle: sb.velocityAngle as number,
+    pitch: sb.pitch as number, flying: sb.flying as boolean,
+    surfaceType: sb.surfaceType as number,
+    forwardX: sb.forwardX as number, forwardY: sb.forwardY as number, forwardZ: sb.forwardZ as number,
+    vx: sb.vx as number, vz: sb.vz as number,
     tick,
   };
 }
@@ -70,6 +60,9 @@ export class Game {
 
   // Headless simulation (quickplay)
   private simulation: Simulation | null = null;
+
+  // Client-side prediction SimBike (online mode)
+  private localSimBike: SimBikeClass | null = null;
 
   // Network (Colyseus)
   private colyseus: ColyseusClient;
@@ -172,6 +165,13 @@ export class Game {
     });
 
     this.loop();
+  }
+
+  /** Find the bikes array index for the local player slot, defaulting to 0. */
+  private get localBikeIndex(): number {
+    const slot = this.config?.localSlot ?? 0;
+    const idx = this.bikes.findIndex(b => b.playerIndex === slot);
+    return idx >= 0 ? idx : 0;
   }
 
   /** Copy server scores into the local round tracker. */
@@ -353,6 +353,8 @@ export class Game {
       );
       if (slot === localSlot) {
         bike.isLocalPredicted = true;
+        // Create local SimBike for 3D client prediction
+        this.localSimBike = new SimBikeClass(slot, PLAYER_COLORS[slot], schemaBike.x, schemaBike.z, schemaBike.angle);
       }
       this.bikes.push(bike);
       this.trails.push(bike.trail);
@@ -360,31 +362,26 @@ export class Game {
 
     this.round = new Round();
 
-    // Camera — always chase cam for online
-    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === localSlot);
-    this.gameCamera.setLocalBikeIndex(localBikeIdx >= 0 ? localBikeIdx : 0);
+    this.gameCamera.setLocalBikeIndex(this.localBikeIndex);
     this.gameCamera.setMode('chase');
 
-    // Build names
     this.names = this.buildNames();
 
-    // Chat
     this.chat.show(
-      this.names[localBikeIdx >= 0 ? localBikeIdx : 0],
+      this.names[this.localBikeIndex],
       PLAYER_COLORS[localSlot],
       (msg) => this.colyseus.sendChat(msg.text),
     );
 
-    // HUD
     this.hud.show(
       this.bikes.length,
       serverState.roundNumber,
       serverState.roundsToWin,
-      localBikeIdx >= 0 ? localBikeIdx : undefined,
+      this.localBikeIndex,
       true,
       this.names,
     );
-    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
+    this.minimap.show(this.localBikeIndex);
     this.touchControls.show();
   }
 
@@ -399,19 +396,26 @@ export class Game {
       this.bikes[i].reset(sb.x, sb.z, sb.angle);
     }
 
+    // Reset local SimBike for prediction
+    if (this.localSimBike) {
+      const localSlot = this.config.localSlot;
+      const localSb = serverState.bikes.find((b: any) => b.slot === localSlot);
+      if (localSb) {
+        this.localSimBike.reset(localSb.x, localSb.z, localSb.angle);
+      }
+    }
+
     this.round.roundNumber = serverState.roundNumber;
 
-    const localSlot = this.config.localSlot;
-    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === localSlot);
     this.hud.show(
       this.bikes.length,
       serverState.roundNumber,
       this.config.roundsToWin,
-      localBikeIdx >= 0 ? localBikeIdx : undefined,
+      this.localBikeIndex,
       true,
       this.names,
     );
-    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
+    this.minimap.show(this.localBikeIndex);
     this.touchControls.show();
   }
 
@@ -485,16 +489,8 @@ export class Game {
 
     this.round = new Round();
 
-    // Camera mode
-    const localSlot = config.localSlot ?? 0;
-    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === localSlot);
-    this.gameCamera.setLocalBikeIndex(localBikeIdx >= 0 ? localBikeIdx : 0);
-
-    if (config.humanCount === 1) {
-      this.gameCamera.setMode('chase');
-    } else {
-      this.gameCamera.setMode('overview');
-    }
+    this.gameCamera.setLocalBikeIndex(this.localBikeIndex);
+    this.gameCamera.setMode(config.humanCount === 1 ? 'chase' : 'overview');
 
     this.startRound();
   }
@@ -517,22 +513,16 @@ export class Game {
     this.countdownTimer = COUNTDOWN_DURATION;
     this.countdownEl.style.display = 'block';
 
-    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config.localSlot ?? 0));
-
     this.names = this.buildNames();
     this.hud.show(
       this.bikes.length,
       this.round.roundNumber,
       this.config.roundsToWin,
-      localBikeIdx >= 0 ? localBikeIdx : 0,
+      this.localBikeIndex,
       false,
       this.names,
     );
-
-    // Show minimap
-    this.minimap.show(localBikeIdx >= 0 ? localBikeIdx : 0);
-
-    // Show touch controls during gameplay
+    this.minimap.show(this.localBikeIndex);
     this.touchControls.show();
   }
 
@@ -748,6 +738,7 @@ export class Game {
     this.bikes = [];
     this.trails = [];
     this.simulation = null;
+    this.localSimBike = null;
     this.powerUpManager.dispose();
     this.chat.hide();
     this.minimap.hide();
@@ -809,9 +800,8 @@ export class Game {
 
     // Hide local player's trail near the bike in first-person mode
     const fpBlend = this.gameCamera.fpBlendValue;
-    const localBikeIdx = this.bikes.findIndex(b => b.playerIndex === (this.config?.localSlot ?? 0));
-    if (localBikeIdx >= 0 && fpBlend > 0) {
-      const trail = this.bikes[localBikeIdx].trail;
+    if (this.bikes.length > 0 && fpBlend > 0) {
+      const trail = this.bikes[this.localBikeIndex].trail;
       const totalSegs = trail.points.length - 1;
       if (totalSegs > 0) {
         const hideSegs = Math.round(8 * fpBlend);
@@ -916,15 +906,14 @@ export class Game {
       const bike = this.bikes[i];
       const sb = roomState.bikes[i];
 
-      if (bike.playerIndex === localSlot) {
-        // LOCAL: predict movement, reconcile on server update
-        bike.update(dt, input, this.trails, true);
+      if (bike.playerIndex === localSlot && this.localSimBike) {
+        // LOCAL: 3D prediction via SimBike, reconcile on server tick
+        this.localSimBike.update(dt, input, [this.localSimBike.trail], true);
+        bike.syncFromSimPredicted(this.localSimBike, dt);
         if (newTick) {
-          bike.applyNetState(netStateFromSchema(sb, roomState.tick));
+          this.reconcileLocalBike(bike, this.localSimBike, netStateFromSchema(sb, roomState.tick));
         }
-        // Trail: local prediction adds points via update(); only sync from
-        // server when the server trail grows (append-only) to avoid snapping
-        // the locally-predicted trail backwards every tick.
+        // Trail: sync from server when it grows beyond local prediction
         if (sb.trail.length > bike.trail.points.length) {
           this.syncTrailFromServer(bike, sb);
         }
@@ -946,6 +935,45 @@ export class Game {
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
 
     this.updateTrailLiveHeads();
+  }
+
+  /** Reconcile local predicted SimBike with authoritative server state. */
+  private reconcileLocalBike(bike: Bike, simBike: SimBikeClass, serverState: ReturnType<typeof netStateFromSchema>): void {
+    // Death is always authoritative from server — check first
+    if (!serverState.alive && bike.alive) {
+      bike.applyNetState(serverState);
+      simBike.applyServerState(serverState);
+      return;
+    }
+
+    if (!serverState.alive) return;
+
+    // Position error between local prediction and server
+    const dx = serverState.x - simBike.position.x;
+    const dy = serverState.y - simBike.position.y;
+    const dz = serverState.z - simBike.position.z;
+    const error = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (error > RENDER_OFFSET_SNAP_THRESHOLD) {
+      // Large disagreement: teleport (snap everything, zero offset)
+      simBike.applyServerState(serverState);
+      bike.renderOffset.set(0, 0, 0);
+      bike.renderAngleOffset = 0;
+    } else if (error > RENDER_OFFSET_MIN_CORRECTION) {
+      // Absorb correction into render offset so visual stays smooth
+      bike.renderOffset.x -= dx;
+      bike.renderOffset.y -= dy;
+      bike.renderOffset.z -= dz;
+      const angleDiff = wrapAngle(serverState.angle - simBike.angle);
+      bike.renderAngleOffset -= angleDiff;
+      simBike.applyServerState(serverState);
+    } else {
+      // Tiny error: just snap SimBike, no visual offset needed
+      simBike.applyServerState(serverState);
+    }
+
+    // Sync non-positional state to visual bike
+    bike.syncInvulnerabilityFromNet(serverState.invulnerable, serverState.invulnerableTimer);
   }
 
   /** Connect each trail's live head segment to its bike's current render position. */

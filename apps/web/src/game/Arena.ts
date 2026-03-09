@@ -88,10 +88,10 @@ export class Arena {
       this.walls.push(wall);
     }
 
-    // Floor-wall ramps (4 quarter-cylinder curves at floor-wall junctions)
+    // Floor-wall and ceiling-wall ramps (quarter-cylinder curves at junctions)
     const rampSegs = 12;
-    this.buildFloorWallRamps(scene, rampMat, R, rampSegs);
-    this.buildCeilingWallRamps(scene, rampMat, R, rampSegs);
+    this.buildEdgeRamps(scene, rampMat, R, rampSegs, 'floor');
+    this.buildEdgeRamps(scene, rampMat, R, rampSegs, 'ceiling');
 
     // Vertical corner ramps (4 quarter-cylinder curves at wall-wall junctions)
     this.buildVerticalCornerRamps(scene, rampMat, R, rampSegs);
@@ -152,45 +152,21 @@ export class Arena {
     scene.add(ceilingGrid);
   }
 
-  /**
-   * Build quarter-cylinder ramp meshes at all 4 floor-wall junctions.
-   */
-  private buildFloorWallRamps(scene: THREE.Scene, mat: THREE.Material, R: number, segs: number): void {
-    const wallDefs: Array<{ wallPos: number; sign: number; axis: 'x' | 'z' }> = [
-      { wallPos: ARENA_HALF, sign: 1, axis: 'x' },
-      { wallPos: -ARENA_HALF, sign: -1, axis: 'x' },
-      { wallPos: ARENA_HALF, sign: 1, axis: 'z' },
-      { wallPos: -ARENA_HALF, sign: -1, axis: 'z' },
+  private buildEdgeRamps(scene: THREE.Scene, mat: THREE.Material, R: number, segs: number, edge: 'floor' | 'ceiling'): void {
+    const wallDefs: Array<{ sign: number; axis: 'x' | 'z' }> = [
+      { sign: 1, axis: 'x' },
+      { sign: -1, axis: 'x' },
+      { sign: 1, axis: 'z' },
+      { sign: -1, axis: 'z' },
     ];
 
     for (const wd of wallDefs) {
-      const geo = this.createRampGeometry(R, segs, ARENA_SIZE, wd.axis, wd.sign, 'floor');
+      const geo = this.createRampGeometry(R, segs, ARENA_SIZE, wd.axis, wd.sign, edge);
       const mesh = new THREE.Mesh(geo, mat.clone());
       scene.add(mesh);
     }
   }
 
-  /**
-   * Build quarter-cylinder ramp meshes at all 4 wall-ceiling junctions.
-   */
-  private buildCeilingWallRamps(scene: THREE.Scene, mat: THREE.Material, R: number, segs: number): void {
-    const wallDefs: Array<{ wallPos: number; sign: number; axis: 'x' | 'z' }> = [
-      { wallPos: ARENA_HALF, sign: 1, axis: 'x' },
-      { wallPos: -ARENA_HALF, sign: -1, axis: 'x' },
-      { wallPos: ARENA_HALF, sign: 1, axis: 'z' },
-      { wallPos: -ARENA_HALF, sign: -1, axis: 'z' },
-    ];
-
-    for (const wd of wallDefs) {
-      const geo = this.createRampGeometry(R, segs, ARENA_SIZE, wd.axis, wd.sign, 'ceiling');
-      const mesh = new THREE.Mesh(geo, mat.clone());
-      scene.add(mesh);
-    }
-  }
-
-  /**
-   * Build vertical quarter-cylinder ramp meshes at all 4 wall-wall corner junctions.
-   */
   private buildVerticalCornerRamps(scene: THREE.Scene, mat: THREE.Material, R: number, segs: number): void {
     const cornerDefs: Array<{ xSign: number; zSign: number }> = [
       { xSign: 1, zSign: 1 },
@@ -208,9 +184,6 @@ export class Arena {
     }
   }
 
-  /**
-   * Create geometry for a vertical quarter-cylinder ramp at a wall-wall corner.
-   */
   private createCornerRampGeometry(
     R: number, segs: number, height: number,
     xSign: number, zSign: number,
@@ -223,35 +196,28 @@ export class Arena {
     const normals: number[] = [];
     const indices: number[] = [];
 
-    const heightSegs = 1;
-
-    for (let hi = 0; hi <= heightSegs; hi++) {
-      const y = yBottom + (height * hi) / heightSegs;
+    for (let hi = 0; hi <= 1; hi++) {
+      const y = yBottom + height * hi;
 
       for (let ai = 0; ai <= segs; ai++) {
-        const t = ai / segs;
-        const angle = t * (Math.PI / 2);
+        const angle = (ai / segs) * (Math.PI / 2);
 
-        const px = centerX + Math.cos(angle) * xSign * R;
-        const pz = centerZ + Math.sin(angle) * zSign * R;
-
-        const nx = -Math.cos(angle) * xSign;
-        const nz = -Math.sin(angle) * zSign;
-
-        verts.push(px, y, pz);
-        normals.push(nx, 0, nz);
+        verts.push(
+          centerX + Math.cos(angle) * xSign * R,
+          y,
+          centerZ + Math.sin(angle) * zSign * R,
+        );
+        normals.push(-Math.cos(angle) * xSign, 0, -Math.sin(angle) * zSign);
       }
     }
 
     const vertsPerRow = segs + 1;
-    for (let hi = 0; hi < heightSegs; hi++) {
-      for (let ai = 0; ai < segs; ai++) {
-        const a = hi * vertsPerRow + ai;
-        const b = a + 1;
-        const c = a + vertsPerRow;
-        const d = c + 1;
-        indices.push(a, c, b, b, c, d);
-      }
+    for (let ai = 0; ai < segs; ai++) {
+      const a = ai;
+      const b = a + 1;
+      const c = a + vertsPerRow;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
     }
 
     const geo = new THREE.BufferGeometry();
@@ -261,45 +227,28 @@ export class Arena {
     return geo;
   }
 
-  /**
-   * Create geometry for a quarter-cylinder ramp running along one wall edge.
-   */
   private createRampGeometry(
     R: number, segs: number, length: number,
     axis: 'x' | 'z', sign: number, edge: 'floor' | 'ceiling',
   ): THREE.BufferGeometry {
-    const wallPos = sign * ARENA_HALF;
-    const centerW = wallPos - sign * R;
+    const centerW = sign * (ARENA_HALF - R);
     const centerY = edge === 'floor' ? R : CEILING_HEIGHT - R;
 
     const verts: number[] = [];
     const normals: number[] = [];
     const indices: number[] = [];
 
-    const strips = segs;
-    const lengthSegs = 1;
+    const ySign = edge === 'floor' ? -1 : 1;
 
-    for (let li = 0; li <= lengthSegs; li++) {
-      const along = -length / 2 + (length * li) / lengthSegs;
+    for (let li = 0; li <= 1; li++) {
+      const along = -length / 2 + length * li;
 
-      for (let ai = 0; ai <= strips; ai++) {
-        const t = ai / strips;
-        const angle = t * (Math.PI / 2);
-
-        let w: number, y: number;
-        let nw: number, ny: number;
-
-        if (edge === 'floor') {
-          w = centerW + Math.sin(angle) * sign * R;
-          y = centerY - Math.cos(angle) * R;
-          nw = -Math.sin(angle) * sign;
-          ny = Math.cos(angle);
-        } else {
-          w = centerW + Math.sin(angle) * sign * R;
-          y = centerY + Math.cos(angle) * R;
-          nw = -Math.sin(angle) * sign;
-          ny = -Math.cos(angle);
-        }
+      for (let ai = 0; ai <= segs; ai++) {
+        const angle = (ai / segs) * (Math.PI / 2);
+        const w = centerW + Math.sin(angle) * sign * R;
+        const y = centerY + Math.cos(angle) * ySign * R;
+        const nw = -Math.sin(angle) * sign;
+        const ny = Math.cos(angle) * -ySign;
 
         if (axis === 'x') {
           verts.push(w, y, along);
@@ -311,15 +260,13 @@ export class Arena {
       }
     }
 
-    const vertsPerRow = strips + 1;
-    for (let li = 0; li < lengthSegs; li++) {
-      for (let ai = 0; ai < strips; ai++) {
-        const a = li * vertsPerRow + ai;
-        const b = a + 1;
-        const c = a + vertsPerRow;
-        const d = c + 1;
-        indices.push(a, c, b, b, c, d);
-      }
+    const vertsPerRow = segs + 1;
+    for (let ai = 0; ai < segs; ai++) {
+      const a = ai;
+      const b = a + 1;
+      const c = a + vertsPerRow;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
     }
 
     const geo = new THREE.BufferGeometry();

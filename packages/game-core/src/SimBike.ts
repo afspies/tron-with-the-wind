@@ -13,7 +13,7 @@ import {
   CEILING_HEIGHT, WALL_MIN_SPEED, WALL_MAX_SPEED, CEILING_RESTITUTION, WALL_ATTACH_MIN_VEL,
 } from '@tron/shared';
 import { SimTrail } from './SimTrail';
-import { checkTrailCollision, checkTrailCollisionDetailed, checkTrailCollisionOnWall, checkWallCollision, type TrailHitInfo } from './Collision';
+import { checkTrailCollisionDetailed, checkTrailCollisionOnWall, checkWallCollision, type TrailHitInfo } from './Collision';
 import type { SimPowerUpEffect } from './powerups/SimPowerUpEffect';
 import { createSimEffect } from './powerups/SimPowerUpRegistry';
 import { rotateVectorAroundAxis, projectOntoSurfacePlane } from './Surface';
@@ -129,8 +129,8 @@ export class SimBike {
     this.surfaceNormal = surfInfo.normal;
     this.surfaceType = surfInfo.surfaceType;
 
-    const isFloorLike = this.surfaceNormal.y > 0.7;
-    const isWallLike = !isFloorLike;
+    let isFloorLike = this.surfaceNormal.y > 0.7;
+    let isWallLike = !isFloorLike;
 
     // Drift: only on floor-like surfaces
     if (isFloorLike) {
@@ -229,6 +229,8 @@ export class SimBike {
     this.position = { ...newSurfInfo.constrainedPos };
     this.surfaceNormal = newSurfInfo.normal;
     this.surfaceType = newSurfInfo.surfaceType;
+    isFloorLike = this.surfaceNormal.y > 0.7;
+    isWallLike = !isFloorLike;
 
     // Update forward from velocity (projected onto new surface plane)
     // Skip during drift so heading can diverge from velocity direction
@@ -256,10 +258,9 @@ export class SimBike {
 
     // Jump from any surface
     if (input.jump && this.jumpCooldown <= 0) {
-      const jumpSpeed = JUMP_INITIAL_VY;
-      this.vx += this.surfaceNormal.x * jumpSpeed;
-      this.vy += this.surfaceNormal.y * jumpSpeed;
-      this.vz += this.surfaceNormal.z * jumpSpeed;
+      this.vx += this.surfaceNormal.x * JUMP_INITIAL_VY;
+      this.vy += this.surfaceNormal.y * JUMP_INITIAL_VY;
+      this.vz += this.surfaceNormal.z * JUMP_INITIAL_VY;
       this.onSurface = false;
       this.grounded = false;
       this.jumpCooldown = JUMP_COOLDOWN;
@@ -282,7 +283,7 @@ export class SimBike {
     // Trail collision: use wall-plane projection when on a wall
     if (!skipCollision) {
       if (isWallLike) {
-        this.checkTrailCollisionWall(allTrails);
+        this.checkTrailCollisionWall(dt, allTrails);
       } else {
         this.checkTrailCollisionFloor(oldPos, newPos, allTrails);
       }
@@ -430,8 +431,9 @@ export class SimBike {
     // Determine "up" on the surface: the component of world-up projected onto surface plane
     const worldUpProj = projectOntoSurfacePlane({ x: 0, y: 1, z: 0 }, this.surfaceNormal);
     if (worldUpProj.x !== 0 || worldUpProj.y !== 0 || worldUpProj.z !== 0) {
+      this.vx += worldUpProj.x * intoSurfaceSpeed;
       this.vy += worldUpProj.y * intoSurfaceSpeed;
-      // For wall normals, worldUpProj ≈ (0,1,0) so this adds upward speed on the wall
+      this.vz += worldUpProj.z * intoSurfaceSpeed;
     }
 
     // Update forward from velocity
@@ -473,12 +475,11 @@ export class SimBike {
     const velDotN = this.vx * n.x + this.vy * n.y + this.vz * n.z;
     // Only reflect if moving into the wall (velDotN < 0 means into wall since normal points inward)
     if (velDotN < 0) {
-      this.vx -= 2 * velDotN * n.x;
-      this.vy -= 2 * velDotN * n.y;
-      this.vz -= 2 * velDotN * n.z;
-      // Apply restitution
-      this.vx *= CEILING_RESTITUTION;
-      this.vz *= CEILING_RESTITUTION;
+      // Apply restitution only to the normal component, preserve tangential speed
+      const normalScale = -(1 + CEILING_RESTITUTION) * velDotN;
+      this.vx += normalScale * n.x;
+      this.vy += normalScale * n.y;
+      this.vz += normalScale * n.z;
     }
     // Clamp position inside arena
     this.position.x = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, this.position.x));
@@ -506,39 +507,32 @@ export class SimBike {
     }
   }
 
-  private checkTrailCollisionWall(allTrails: SimTrail[]): void {
-    const pos3D: Vec3 = this.position;
-    // Use a small movement vector based on velocity for the collision check
+  private checkTrailCollisionWall(dt: number, allTrails: SimTrail[]): void {
     const oldPos3D: Vec3 = {
-      x: pos3D.x - this.vx * 0.033,
-      y: pos3D.y - this.vy * 0.033,
-      z: pos3D.z - this.vz * 0.033,
+      x: this.position.x - this.vx * dt,
+      y: this.position.y - this.vy * dt,
+      z: this.position.z - this.vz * dt,
     };
-    if (this.invulnerable) {
-      const hit = checkTrailCollisionOnWall(oldPos3D, pos3D, this.surfaceType, allTrails, this.playerIndex);
-      if (hit && hit.trailIndex !== this.playerIndex) {
-        allTrails[hit.trailIndex].deleteSegmentsInRadius(hit.contactX, hit.contactZ, TRAIL_DESTROY_RADIUS);
-        this.lastTrailDestruction = hit;
-      }
-    } else {
-      const hit = checkTrailCollisionOnWall(oldPos3D, pos3D, this.surfaceType, allTrails, this.playerIndex);
-      if (hit) {
-        this.die();
-      }
+    const hit = checkTrailCollisionOnWall(oldPos3D, this.position, this.surfaceType, allTrails, this.playerIndex);
+    if (!hit) return;
+
+    if (this.invulnerable && hit.trailIndex !== this.playerIndex) {
+      allTrails[hit.trailIndex].deleteSegmentsInRadius(hit.contactX, hit.contactZ, TRAIL_DESTROY_RADIUS);
+      this.lastTrailDestruction = hit;
+    } else if (!this.invulnerable) {
+      this.die();
     }
   }
 
   private checkTrailCollisionFloor(oldPos: Vec2, newPos: Vec2, allTrails: SimTrail[]): void {
-    if (this.invulnerable) {
-      const hit = checkTrailCollisionDetailed(oldPos, newPos, this.position.y, allTrails, this.playerIndex);
-      if (hit && hit.trailIndex !== this.playerIndex) {
-        allTrails[hit.trailIndex].deleteSegmentsInRadius(hit.contactX, hit.contactZ, TRAIL_DESTROY_RADIUS);
-        this.lastTrailDestruction = hit;
-      }
-    } else {
-      if (checkTrailCollision(oldPos, newPos, this.position.y, allTrails, this.playerIndex)) {
-        this.die();
-      }
+    const hit = checkTrailCollisionDetailed(oldPos, newPos, this.position.y, allTrails, this.playerIndex);
+    if (!hit) return;
+
+    if (this.invulnerable && hit.trailIndex !== this.playerIndex) {
+      allTrails[hit.trailIndex].deleteSegmentsInRadius(hit.contactX, hit.contactZ, TRAIL_DESTROY_RADIUS);
+      this.lastTrailDestruction = hit;
+    } else if (!this.invulnerable) {
+      this.die();
     }
   }
 
@@ -557,6 +551,57 @@ export class SimBike {
     const effect = this.activeEffect;
     this.activeEffect = null;
     effect?.onExpire(this);
+  }
+
+  /** Snap all physics state from a server snapshot (used for client-side reconciliation). */
+  applyServerState(state: {
+    x: number; y: number; z: number; angle: number;
+    vx: number; vz: number; vy: number;
+    alive: boolean; grounded: boolean;
+    boosting: boolean; boostMeter: number;
+    drifting: boolean; velocityAngle: number;
+    pitch: number; flying: boolean;
+    surfaceType: number;
+    forwardX: number; forwardY: number; forwardZ: number;
+    doubleJumpCooldown: number;
+    invulnerable: boolean; invulnerableTimer: number;
+  }): void {
+    this.position.x = state.x;
+    this.position.y = state.y;
+    this.position.z = state.z;
+    this.angle = state.angle;
+    this.vx = state.vx;
+    this.vz = state.vz;
+    this.vy = state.vy;
+    this.alive = state.alive;
+    this.grounded = state.grounded;
+    this.boosting = state.boosting;
+    this.boostMeter = state.boostMeter;
+    this.drifting = state.drifting;
+    this.velocityAngle = state.velocityAngle;
+    this.pitch = state.pitch;
+    this.flying = state.flying;
+    this.surfaceType = state.surfaceType as SurfaceType;
+    this.forward = { x: state.forwardX, y: state.forwardY, z: state.forwardZ };
+    this.doubleJumpCooldown = state.doubleJumpCooldown;
+    this.doubleJumpReady = state.doubleJumpCooldown <= 0;
+
+    // Derive surface state from position
+    const surfInfo = getArenaSurfaceInfo(this.position);
+    this.surfaceNormal = surfInfo.normal;
+    this.onSurface = this.surfaceType !== SurfaceType.Air;
+
+    // Sync invulnerability effect
+    if (state.invulnerable && !this.invulnerable) {
+      this.grantInvulnerability();
+      this.effectTimer = state.invulnerableTimer;
+    } else if (!state.invulnerable && this.invulnerable) {
+      const effect = this.activeEffect;
+      this.activeEffect = null;
+      effect?.onExpire(this);
+    } else if (state.invulnerable) {
+      this.effectTimer = state.invulnerableTimer;
+    }
   }
 
   reset(x: number, z: number, angle: number): void {

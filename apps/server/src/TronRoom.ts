@@ -257,6 +257,8 @@ export class TronRoom extends Room<TronState> {
       bike.forwardX = sim.forward.x;
       bike.forwardY = sim.forward.y;
       bike.forwardZ = sim.forward.z;
+      bike.vx = sim.vx;
+      bike.vz = sim.vz;
     }
   }
 

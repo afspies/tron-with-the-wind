@@ -51,6 +51,12 @@ export interface GameConfig {
   localSlot?: number;
 }
 
+export function wrapAngle(diff: number): number {
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  return diff;
+}
+
 export function getSurfaceNormal(surface: SurfaceType): Vec3 {
   switch (surface) {
     case SurfaceType.Floor: return { x: 0, y: 1, z: 0 };

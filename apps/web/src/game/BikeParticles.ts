@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TRAIL_HEIGHT, GRAVITY } from '@tron/shared';
+import { GRAVITY } from '@tron/shared';
 
 export class TrailParticles {
   private points: THREE.Points;
