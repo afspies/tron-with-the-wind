@@ -218,6 +218,7 @@ export class Bike {
     this.flying = simBike.flying;
     this.surfaceType = simBike.surfaceType;
     this.forward = { x: simBike.forward.x, y: simBike.forward.y, z: simBike.forward.z };
+    this.surfaceNormal = { x: simBike.surfaceNormal.x, y: simBike.surfaceNormal.y, z: simBike.surfaceNormal.z };
   }
 
   /** Update mesh visuals: orientation, pitch, lean, effect. */
@@ -310,7 +311,7 @@ export class Bike {
   }
 
   private updateBodyPitch(): void {
-    if (this.flying || this.pitch > 0.01) {
+    if (this.flying || Math.abs(this.pitch) > 0.01) {
       this.bodyMesh.rotation.x = -this.pitch;
     } else if (!this.grounded) {
       this.bodyMesh.rotation.x = -(this.vy / JUMP_INITIAL_VY) * 0.2;
@@ -321,16 +322,13 @@ export class Bike {
 
   /** Compute mesh orientation from surface state using continuous surface normal. */
   private updateMeshOrientation(dt: number): void {
-    const isOnSurface = this.surfaceType !== SurfaceType.Air && this.grounded;
+    // Always recompute surfaceNormal from physics position (works for both floor and walls)
+    const surfInfo = getArenaSurfaceInfo({
+      x: this.position.x, y: this.position.y, z: this.position.z,
+    });
+    this.surfaceNormal = surfInfo.normal;
 
-    if (isOnSurface && this.surfaceNormal.y > 0.7) {
-      // Floor: recompute normal for smooth ramp transitions
-      const surfInfo = getArenaSurfaceInfo({
-        x: this.position.x, y: this.position.y, z: this.position.z,
-      });
-      this.surfaceNormal = surfInfo.normal;
-    }
-    // On walls: use surfaceNormal from physics (already set by copyPhysicsState)
+    const isOnSurface = this.surfaceType !== SurfaceType.Air && this.grounded;
 
     if (isOnSurface) {
       // Build rotation from forward projected onto surface plane + surface normal
