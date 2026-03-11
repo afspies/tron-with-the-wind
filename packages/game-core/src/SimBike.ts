@@ -362,7 +362,7 @@ export class SimBike {
 
     // Floor landing
     if (this.position.y <= 0) {
-      if (Math.abs(this.pitch) > FLIGHT_LANDING_MAX_PITCH) {
+      if (this.pitch > FLIGHT_LANDING_MAX_PITCH || this.pitch < -FLIGHT_MAX_PITCH * 0.9) {
         this.die();
         return;
       }
