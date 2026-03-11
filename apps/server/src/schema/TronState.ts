@@ -24,6 +24,12 @@ export class BikeSchema extends Schema {
   @type('float32') velocityAngle: number = 0;
   @type('float32') pitch: number = 0;
   @type('boolean') flying: boolean = false;
+  @type('uint8') surfaceType: number = 0;
+  @type('float32') forwardX: number = 0;
+  @type('float32') forwardY: number = 0;
+  @type('float32') forwardZ: number = 1;
+  @type('float32') vx: number = 0;
+  @type('float32') vz: number = 0;
   @type([TrailPointSchema]) trail = new ArraySchema<TrailPointSchema>();
 }
 

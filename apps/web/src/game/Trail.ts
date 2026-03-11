@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TRAIL_HEIGHT, TRAIL_SAMPLE_DISTANCE, TRAIL_RAMP_SEGMENTS } from '@tron/shared';
 import type { TrailPoint } from '@tron/shared';
+import { getArenaSurfaceInfo } from '@tron/game-core';
 
 export class Trail {
   points: TrailPoint[] = [];
@@ -38,8 +39,9 @@ export class Trail {
 
     if (this.lastSamplePos) {
       const dx = x - this.lastSamplePos.x;
+      const dy = y - this.lastSamplePos.y;
       const dz = z - this.lastSamplePos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (dist < TRAIL_SAMPLE_DISTANCE) return;
     }
 
@@ -87,24 +89,35 @@ export class Trail {
     p2: TrailPoint,
     h1: number,
     h2: number,
+    surfN1?: { x: number; y: number; z: number },
+    surfN2?: { x: number; y: number; z: number },
   ): void {
-    const dx = p2.x - p1.x;
-    const dz = p2.z - p1.z;
-    const len = Math.sqrt(dx * dx + dz * dz);
-    const nx = -dz / (len || 1);
-    const nz = dx / (len || 1);
+    // Extrude along surface normals if provided, otherwise fall back to +Y
+    const sn1 = surfN1 ?? { x: 0, y: 1, z: 0 };
+    const sn2 = surfN2 ?? { x: 0, y: 1, z: 0 };
 
     // Two-triangle quad: bottom-left, top-left, top-right, bottom-left, top-right, bottom-right
-    posArr[baseIdx]      = p1.x; posArr[baseIdx + 1]  = p1.y;      posArr[baseIdx + 2]  = p1.z;
-    posArr[baseIdx + 3]  = p1.x; posArr[baseIdx + 4]  = p1.y + h1; posArr[baseIdx + 5]  = p1.z;
-    posArr[baseIdx + 6]  = p2.x; posArr[baseIdx + 7]  = p2.y + h2; posArr[baseIdx + 8]  = p2.z;
-    posArr[baseIdx + 9]  = p1.x; posArr[baseIdx + 10] = p1.y;      posArr[baseIdx + 11] = p1.z;
-    posArr[baseIdx + 12] = p2.x; posArr[baseIdx + 13] = p2.y + h2; posArr[baseIdx + 14] = p2.z;
-    posArr[baseIdx + 15] = p2.x; posArr[baseIdx + 16] = p2.y;      posArr[baseIdx + 17] = p2.z;
+    posArr[baseIdx]      = p1.x;                posArr[baseIdx + 1]  = p1.y;                posArr[baseIdx + 2]  = p1.z;
+    posArr[baseIdx + 3]  = p1.x + sn1.x * h1;  posArr[baseIdx + 4]  = p1.y + sn1.y * h1;  posArr[baseIdx + 5]  = p1.z + sn1.z * h1;
+    posArr[baseIdx + 6]  = p2.x + sn2.x * h2;  posArr[baseIdx + 7]  = p2.y + sn2.y * h2;  posArr[baseIdx + 8]  = p2.z + sn2.z * h2;
+    posArr[baseIdx + 9]  = p1.x;                posArr[baseIdx + 10] = p1.y;                posArr[baseIdx + 11] = p1.z;
+    posArr[baseIdx + 12] = p2.x + sn2.x * h2;  posArr[baseIdx + 13] = p2.y + sn2.y * h2;  posArr[baseIdx + 14] = p2.z + sn2.z * h2;
+    posArr[baseIdx + 15] = p2.x;                posArr[baseIdx + 16] = p2.y;                posArr[baseIdx + 17] = p2.z;
+
+    // Face normal: cross(segment_dir, surface_normal)
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const dz = p2.z - p1.z;
+    let nx = dy * sn1.z - dz * sn1.y;
+    let ny = dz * sn1.x - dx * sn1.z;
+    let nz = dx * sn1.y - dy * sn1.x;
+    const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (nLen > 0.001) { nx /= nLen; ny /= nLen; nz /= nLen; }
+    else { nx = 0; ny = 0; nz = 1; }
 
     for (let j = 0; j < 6; j++) {
       normArr[baseIdx + j * 3]     = nx;
-      normArr[baseIdx + j * 3 + 1] = 0;
+      normArr[baseIdx + j * 3 + 1] = ny;
       normArr[baseIdx + j * 3 + 2] = nz;
     }
   }
@@ -151,7 +164,9 @@ export class Trail {
 
       const h1 = this.rampHeight(totalSegs - i);
       const h2 = this.rampHeight(totalSegs - (i + 1));
-      this.writeSegment(posArr, normArr, baseIdx, p1, p2, h1, h2);
+      const sn1 = getArenaSurfaceInfo(p1 as { x: number; y: number; z: number }).normal;
+      const sn2 = getArenaSurfaceInfo(p2 as { x: number; y: number; z: number }).normal;
+      this.writeSegment(posArr, normArr, baseIdx, p1, p2, h1, h2, sn1, sn2);
     }
 
     positions.needsUpdate = true;
@@ -254,14 +269,19 @@ export class Trail {
 
       const h1 = this.rampHeight(totalWithHead - i);
       const h2 = this.rampHeight(totalWithHead - (i + 1));
-      this.writeSegment(posArr, normArr, i * 18, p1, p2, h1, h2);
+      const sn1 = getArenaSurfaceInfo(p1 as { x: number; y: number; z: number }).normal;
+      const sn2 = getArenaSurfaceInfo(p2 as { x: number; y: number; z: number }).normal;
+      this.writeSegment(posArr, normArr, i * 18, p1, p2, h1, h2, sn1, sn2);
     }
 
     // Live head segment: last stored point to current bike position
+    const snLast = getArenaSurfaceInfo(lastStored as { x: number; y: number; z: number }).normal;
+    const snHead = getArenaSurfaceInfo(this.liveHead as { x: number; y: number; z: number }).normal;
     this.writeSegment(
       posArr, normArr, storedSegs * 18,
       lastStored, this.liveHead,
       this.rampHeight(1), 0,
+      snLast, snHead,
     );
 
     positions.needsUpdate = true;

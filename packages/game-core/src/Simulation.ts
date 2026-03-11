@@ -52,6 +52,7 @@ export class Simulation {
       // AI for non-human slots
       if (!config.humanSlots.includes(slot)) {
         this.aiControllers.set(slot, new AIController(config.aiDifficulty));
+        bike.canWallDrive = false;
       }
     }
 

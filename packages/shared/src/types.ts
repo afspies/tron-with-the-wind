@@ -1,3 +1,12 @@
+export enum SurfaceType {
+  Floor = 0,
+  WallXPos = 1,
+  WallXNeg = 2,
+  WallZPos = 3,
+  WallZNeg = 4,
+  Air = 5,
+}
+
 export type GamePhase = 'lobby' | 'countdown' | 'playing' | 'roundEnd' | 'gameOver';
 
 export type GameState = 'MENU' | 'LOBBY' | 'COUNTDOWN' | 'PLAYING' | 'ROUND_END' | 'GAME_OVER';
@@ -40,4 +49,21 @@ export interface GameConfig {
   roundsToWin: number;
   mode: 'quickplay' | 'online' | 'tutorial';
   localSlot?: number;
+}
+
+export function wrapAngle(diff: number): number {
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  return diff;
+}
+
+export function getSurfaceNormal(surface: SurfaceType): Vec3 {
+  switch (surface) {
+    case SurfaceType.Floor: return { x: 0, y: 1, z: 0 };
+    case SurfaceType.WallXPos: return { x: -1, y: 0, z: 0 };
+    case SurfaceType.WallXNeg: return { x: 1, y: 0, z: 0 };
+    case SurfaceType.WallZPos: return { x: 0, y: 0, z: -1 };
+    case SurfaceType.WallZNeg: return { x: 0, y: 0, z: 1 };
+    case SurfaceType.Air: return { x: 0, y: 1, z: 0 };
+  }
 }
