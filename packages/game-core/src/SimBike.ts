@@ -7,7 +7,7 @@ import {
   ARENA_HALF, TRAIL_DESTROY_RADIUS,
   DOUBLE_JUMP_COOLDOWN,
   DRIFT_TURN_MULTIPLIER, DRIFT_SPEED_MULTIPLIER, DRIFT_TRACTION, NORMAL_TRACTION,
-  FLIGHT_PITCH_RATE, FLIGHT_PITCH_RETURN_RATE, FLIGHT_MAX_PITCH,
+  FLIGHT_PITCH_RATE, FLIGHT_MAX_PITCH,
   FLIGHT_THRUST, FLIGHT_AIR_TURN_MULT, FLIGHT_BOOST_DRAIN_MULT,
   FLIGHT_LANDING_MAX_PITCH,
   CEILING_HEIGHT, WALL_MIN_SPEED, WALL_MAX_SPEED, CEILING_RESTITUTION, WALL_ATTACH_MIN_VEL,
@@ -308,7 +308,7 @@ export class SimBike {
     if (input.pitchUp) {
       this.pitch = Math.min(FLIGHT_MAX_PITCH, this.pitch + FLIGHT_PITCH_RATE * dt);
     } else if (input.pitchDown) {
-      this.pitch = Math.max(0, this.pitch - FLIGHT_PITCH_RETURN_RATE * dt);
+      this.pitch = Math.max(-FLIGHT_MAX_PITCH, this.pitch - FLIGHT_PITCH_RATE * dt);
     }
 
     const currentSpeed = this.speed * (this.boosting ? BOOST_MULTIPLIER : 1.0);
