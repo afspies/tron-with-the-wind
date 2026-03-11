@@ -312,7 +312,7 @@ export class Bike {
 
   private updateBodyPitch(): void {
     if (this.flying || Math.abs(this.pitch) > 0.01) {
-      this.bodyMesh.rotation.x = -this.pitch;
+      this.bodyMesh.rotation.x = this.pitch;
     } else if (!this.grounded) {
       this.bodyMesh.rotation.x = -(this.vy / JUMP_INITIAL_VY) * 0.2;
     } else {
