@@ -112,8 +112,8 @@ export class ColyseusClient {
     this.isHost = state.hostSessionId === this.localSessionId;
   }
 
-  sendInput(input: PlayerInput): void {
-    this.room?.send(ClientMsg.Input, input);
+  sendInput(input: PlayerInput, tick?: number): void {
+    this.room?.send(ClientMsg.Input, tick != null ? { ...input, tick } : input);
   }
 
   sendChat(text: string): void {

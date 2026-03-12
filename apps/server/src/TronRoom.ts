@@ -14,13 +14,14 @@ export class TronRoom extends Room<TronState> {
 
   private simulation: Simulation | null = null;
   private playerInputs = new Map<string, PlayerInput>();
+  private playerInputTicks = new Map<string, number>();
   private sessionToSlot = new Map<string, number>();
 
   onCreate(_options: { roomCode?: string }): void {
     this.setState(new TronState());
     this.autoDispose = true;
 
-    this.onMessage(ClientMsg.Input, (client, data: PlayerInput) => {
+    this.onMessage(ClientMsg.Input, (client, data: PlayerInput & { tick?: number }) => {
       if (this.state.phase !== 'playing') return;
       this.playerInputs.set(client.sessionId, {
         left: !!data.left,
@@ -31,6 +32,9 @@ export class TronRoom extends Room<TronState> {
         pitchUp: !!data.pitchUp,
         pitchDown: !!data.pitchDown,
       });
+      if (data.tick != null) {
+        this.playerInputTicks.set(client.sessionId, data.tick);
+      }
     });
 
     this.onMessage(ClientMsg.Chat, (client, data: { text: string }) => {
@@ -99,6 +103,7 @@ export class TronRoom extends Room<TronState> {
     this.state.players.delete(client.sessionId);
     this.sessionToSlot.delete(client.sessionId);
     this.playerInputs.delete(client.sessionId);
+    this.playerInputTicks.delete(client.sessionId);
 
     // Kill bike if playing
     if (this.simulation && slot != null) {
@@ -150,6 +155,7 @@ export class TronRoom extends Room<TronState> {
 
     this.state.tick = 0;
     this.playerInputs.clear();
+    this.playerInputTicks.clear();
 
     this.startRound();
 
@@ -259,6 +265,14 @@ export class TronRoom extends Room<TronState> {
       bike.forwardZ = sim.forward.z;
       bike.vx = sim.vx;
       bike.vz = sim.vz;
+
+      // Sync last processed input tick for client reconciliation
+      for (const [sessionId, slot] of this.sessionToSlot) {
+        if (slot === sim.playerIndex) {
+          bike.lastInputTick = this.playerInputTicks.get(sessionId) ?? 0;
+          break;
+        }
+      }
     }
   }
 
