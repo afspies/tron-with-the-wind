@@ -63,6 +63,7 @@ export class Game {
 
   // Client-side prediction SimBike (online mode)
   private localSimBike: SimBikeClass | null = null;
+  private predictionAccumulator: number = 0;
 
   // Network (Colyseus)
   private colyseus: ColyseusClient;
@@ -364,6 +365,7 @@ export class Game {
         bike.isLocalPredicted = true;
         // Create local SimBike for 3D client prediction
         this.localSimBike = new SimBikeClass(slot, PLAYER_COLORS[slot], schemaBike.x, schemaBike.z, schemaBike.angle);
+        this.predictionAccumulator = 0;
       }
       this.bikes.push(bike);
       this.trails.push(bike.trail);
@@ -411,6 +413,7 @@ export class Game {
       const localSb = serverState.bikes.find((b: any) => b.slot === localSlot);
       if (localSb) {
         this.localSimBike.reset(localSb.x, localSb.z, localSb.angle);
+        this.predictionAccumulator = 0;
       }
     }
 
@@ -748,6 +751,7 @@ export class Game {
     this.trails = [];
     this.simulation = null;
     this.localSimBike = null;
+    this.predictionAccumulator = 0;
     this.powerUpManager.dispose();
     this.chat.hide();
     this.minimap.hide();
@@ -917,7 +921,12 @@ export class Game {
 
       if (bike.playerIndex === localSlot && this.localSimBike) {
         // LOCAL: 3D prediction via SimBike, reconcile on server tick
-        this.localSimBike.update(dt, input, [this.localSimBike.trail], true);
+        const FIXED_DT = 0.033;
+        this.predictionAccumulator += dt;
+        while (this.predictionAccumulator >= FIXED_DT) {
+          this.localSimBike.update(FIXED_DT, input, [this.localSimBike.trail], false);
+          this.predictionAccumulator -= FIXED_DT;
+        }
         bike.syncFromSimPredicted(this.localSimBike, dt);
         if (newTick) {
           this.reconcileLocalBike(bike, this.localSimBike, netStateFromSchema(sb, roomState.tick));
