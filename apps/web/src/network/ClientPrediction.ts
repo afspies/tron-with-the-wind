@@ -17,6 +17,9 @@ export interface NetBikeState {
   surfaceType: number;
   forwardX: number; forwardY: number; forwardZ: number;
   doubleJumpCooldown: number;
+  jumpCooldown: number;
+  boostRechargeTimer: number;
+  usedDoubleJumpThisAirborne: boolean;
   invulnerable: boolean; invulnerableTimer: number;
   lastInputTick: number;
   tick: number;

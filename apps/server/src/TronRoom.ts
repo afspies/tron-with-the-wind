@@ -1,12 +1,12 @@
 import { Room, Client } from 'colyseus';
 import { Simulation } from '@tron/game-core';
-import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, ClientMsg, ServerMsg } from '@tron/shared';
+import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, NET_TICK_DURATION_MS, ClientMsg, ServerMsg } from '@tron/shared';
 import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import {
   TronState, PlayerSchema, BikeSchema, TrailPointSchema, PowerUpSchema,
 } from './schema/TronState';
 
-const SIM_INTERVAL_MS = 33;   // 30 Hz physics
+const SIM_INTERVAL_MS = NET_TICK_DURATION_MS;   // 30 Hz physics — must match client prediction dt
 
 export class TronRoom extends Room<TronState> {
   maxClients = MAX_PLAYERS;
@@ -179,9 +179,11 @@ export class TronRoom extends Room<TronState> {
     this.syncScores();
   }
 
-  private gameLoop(dt: number): void {
+  private gameLoop(_dt: number): void {
     if (!this.simulation) return;
-    const dtSec = dt / 1000;
+    // Use fixed dt matching client prediction to ensure deterministic replay.
+    // Colyseus passes actual elapsed ms which varies slightly, causing drift.
+    const dtSec = NET_TICK_DURATION_MS / 1000;
 
     switch (this.state.phase) {
       case 'countdown': {
@@ -265,6 +267,9 @@ export class TronRoom extends Room<TronState> {
       bike.forwardZ = sim.forward.z;
       bike.vx = sim.vx;
       bike.vz = sim.vz;
+      bike.jumpCooldown = sim.jumpCooldown;
+      bike.boostRechargeTimer = sim.boostRechargeTimer;
+      bike.usedDoubleJumpThisAirborne = sim.usedDoubleJumpThisAirborne;
 
       // Sync last processed input tick for client reconciliation
       for (const [sessionId, slot] of this.sessionToSlot) {

@@ -45,6 +45,9 @@ describe('SimBike state', () => {
         surfaceType: SurfaceType.WallXPos,
         forwardX: 0, forwardY: 0, forwardZ: 1,
         doubleJumpCooldown: 0,
+        jumpCooldown: 0,
+        boostRechargeTimer: 0,
+        usedDoubleJumpThisAirborne: false,
         invulnerable: false, invulnerableTimer: 0,
       });
 
@@ -66,6 +69,9 @@ describe('SimBike state', () => {
         surfaceType: SurfaceType.Air,
         forwardX: 0, forwardY: 0, forwardZ: 1,
         doubleJumpCooldown: 0,
+        jumpCooldown: 0,
+        boostRechargeTimer: 0,
+        usedDoubleJumpThisAirborne: false,
         invulnerable: false, invulnerableTimer: 0,
       });
 
