@@ -93,10 +93,16 @@ export class ClientPrediction {
     this.simBike.applyServerState(serverState);
 
     // Replay all unacknowledged inputs to re-derive predicted state
+    // Save trail length before replay — replay adds spurious trail points
+    const trailLen = this.simBike.trail.points.length;
+
     const pending = this.inputBuffer.getUnacknowledged();
     for (const entry of pending) {
       this.simBike.update(FIXED_DT, entry.input, [], true);
     }
+
+    // Restore trail to pre-replay length (discard spurious points)
+    this.simBike.trail.points.length = trailLen;
 
     // Compute prediction error (distance between old predicted pos and new predicted pos)
     const newX = this.simBike.position.x;

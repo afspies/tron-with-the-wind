@@ -885,9 +885,8 @@ export class Game {
   // --- Online Update ---
 
   private updatePlayingOnline(dt: number): void {
-    // Send local player input to server (tagged with prediction tick for reconciliation)
+    // Sample input (sent after prediction so tick number is current)
     const input = this.input.getInput(0);
-    this.colyseus.sendInput(input, this.prediction?.currentTick);
 
     // Read server state
     const roomState = this.colyseus.room?.state as any;
@@ -923,12 +922,15 @@ export class Game {
       const sb = roomState.bikes[i];
 
       if (bike.playerIndex === localSlot && this.localSimBike && this.prediction) {
-        // LOCAL: input-buffered prediction with replay reconciliation
-        this.prediction.predict(dt, input);
-        bike.syncFromSimPredicted(this.localSimBike, dt);
+        // LOCAL: reconcile → predict → sync visual
+        // 1. Reconcile FIRST on new server tick (corrects simBike state)
         if (newTick) {
           this.prediction.reconcile(bike, netStateFromSchema(sb, roomState.tick));
         }
+        // 2. Predict forward from (possibly corrected) state
+        this.prediction.predict(dt, input);
+        // 3. Sync visual after both reconcile + predict
+        bike.syncFromSimPredicted(this.localSimBike, dt);
         // Trail: sync from server when it grows beyond local prediction
         if (sb.trail.length > bike.trail.points.length) {
           this.syncTrailFromServer(bike, sb);
@@ -942,6 +944,9 @@ export class Game {
         bike.deadReckon(dt, this.remoteRenderTick);
       }
     }
+
+    // Send input AFTER prediction so tick number is current
+    this.colyseus.sendInput(input, this.prediction?.currentTick);
 
     // Update power-up visuals (spawning/pickup handled via broadcast messages)
     this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, false, null, []);
