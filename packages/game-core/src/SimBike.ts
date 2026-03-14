@@ -566,6 +566,9 @@ export class SimBike {
     surfaceType: number;
     forwardX: number; forwardY: number; forwardZ: number;
     doubleJumpCooldown: number;
+    jumpCooldown: number;
+    boostRechargeTimer: number;
+    usedDoubleJumpThisAirborne: boolean;
     invulnerable: boolean; invulnerableTimer: number;
   }): void {
     this.position.x = state.x;
@@ -587,6 +590,9 @@ export class SimBike {
     this.forward = { x: state.forwardX, y: state.forwardY, z: state.forwardZ };
     this.doubleJumpCooldown = state.doubleJumpCooldown;
     this.doubleJumpReady = state.doubleJumpCooldown <= 0;
+    this.jumpCooldown = state.jumpCooldown;
+    this.boostRechargeTimer = state.boostRechargeTimer;
+    this.usedDoubleJumpThisAirborne = state.usedDoubleJumpThisAirborne;
 
     // Derive surface state from position
     const surfInfo = getArenaSurfaceInfo(this.position);

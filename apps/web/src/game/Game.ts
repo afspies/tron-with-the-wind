@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD, RENDER_OFFSET_SNAP_THRESHOLD, RENDER_OFFSET_MIN_CORRECTION, wrapAngle } from '@tron/shared';
-import { Simulation, SimBike as SimBikeClass, SimTrail } from '@tron/game-core';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD } from '@tron/shared';
+import { Simulation, SimBike as SimBikeClass } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
 import { setupLighting } from '../scene/Lighting';
@@ -15,6 +15,9 @@ import { Menu } from '../ui/Menu';
 import { HUD } from '../ui/HUD';
 import { Scoreboard } from '../ui/Scoreboard';
 import { ColyseusClient } from '../network/ColyseusClient';
+import { ClientPrediction } from '../network/ClientPrediction';
+import type { NetBikeState } from '../network/ClientPrediction';
+import { ReconciliationLogger } from '../network/ReconciliationLogger';
 import { Lobby } from '../ui/Lobby';
 import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
@@ -26,18 +29,22 @@ import { Stadium } from './Stadium';
 import { Crowd } from './Crowd';
 
 /** Build a net state snapshot from a Colyseus schema bike + room tick. */
-function netStateFromSchema(sb: any, tick: number) {
+function netStateFromSchema(sb: any, tick: number): NetBikeState {
   return {
     x: sb.x as number, z: sb.z as number, y: sb.y as number, angle: sb.angle as number,
     alive: sb.alive as boolean, vy: sb.vy as number, grounded: sb.grounded as boolean,
     boostMeter: sb.boostMeter as number, boosting: sb.boosting as boolean,
     invulnerable: sb.invulnerable as boolean, invulnerableTimer: sb.invulnerableTimer as number,
     doubleJumpCooldown: sb.doubleJumpCooldown as number,
+    jumpCooldown: sb.jumpCooldown as number,
+    boostRechargeTimer: sb.boostRechargeTimer as number,
+    usedDoubleJumpThisAirborne: sb.usedDoubleJumpThisAirborne as boolean,
     drifting: sb.drifting as boolean, velocityAngle: sb.velocityAngle as number,
     pitch: sb.pitch as number, flying: sb.flying as boolean,
     surfaceType: sb.surfaceType as number,
     forwardX: sb.forwardX as number, forwardY: sb.forwardY as number, forwardZ: sb.forwardZ as number,
     vx: sb.vx as number, vz: sb.vz as number,
+    lastInputTick: (sb.lastInputTick as number) ?? 0,
     tick,
   };
 }
@@ -61,9 +68,9 @@ export class Game {
   // Headless simulation (quickplay)
   private simulation: Simulation | null = null;
 
-  // Client-side prediction SimBike (online mode)
+  // Client-side prediction (online mode)
   private localSimBike: SimBikeClass | null = null;
-  private predictionAccumulator: number = 0;
+  private prediction: ClientPrediction | null = null;
 
   // Network (Colyseus)
   private colyseus: ColyseusClient;
@@ -365,7 +372,13 @@ export class Game {
         bike.isLocalPredicted = true;
         // Create local SimBike for 3D client prediction
         this.localSimBike = new SimBikeClass(slot, PLAYER_COLORS[slot], schemaBike.x, schemaBike.z, schemaBike.angle);
-        this.predictionAccumulator = 0;
+        this.prediction = new ClientPrediction(this.localSimBike);
+        // Enable reconciliation logging via ?reconcile_log URL parameter
+        if (new URLSearchParams(window.location.search).has('reconcile_log')) {
+          this.prediction.logger = new ReconciliationLogger();
+          (window as any).__reconciliationLogger = this.prediction.logger;
+          console.log('[Reconciliation] Logger enabled — access via __reconciliationLogger.summary()');
+        }
       }
       this.bikes.push(bike);
       this.trails.push(bike.trail);
@@ -413,7 +426,7 @@ export class Game {
       const localSb = serverState.bikes.find((b: any) => b.slot === localSlot);
       if (localSb) {
         this.localSimBike.reset(localSb.x, localSb.z, localSb.angle);
-        this.predictionAccumulator = 0;
+        this.prediction?.reset();
       }
     }
 
@@ -751,7 +764,7 @@ export class Game {
     this.trails = [];
     this.simulation = null;
     this.localSimBike = null;
-    this.predictionAccumulator = 0;
+    this.prediction = null;
     this.powerUpManager.dispose();
     this.chat.hide();
     this.minimap.hide();
@@ -882,9 +895,8 @@ export class Game {
   // --- Online Update ---
 
   private updatePlayingOnline(dt: number): void {
-    // Send local player input to server
+    // Sample input (sent after prediction so tick number is current)
     const input = this.input.getInput(0);
-    this.colyseus.sendInput(input);
 
     // Read server state
     const roomState = this.colyseus.room?.state as any;
@@ -919,18 +931,16 @@ export class Game {
       const bike = this.bikes[i];
       const sb = roomState.bikes[i];
 
-      if (bike.playerIndex === localSlot && this.localSimBike) {
-        // LOCAL: 3D prediction via SimBike, reconcile on server tick
-        const FIXED_DT = 0.033;
-        this.predictionAccumulator += dt;
-        while (this.predictionAccumulator >= FIXED_DT) {
-          this.localSimBike.update(FIXED_DT, input, [this.localSimBike.trail], false);
-          this.predictionAccumulator -= FIXED_DT;
-        }
-        bike.syncFromSimPredicted(this.localSimBike, dt);
+      if (bike.playerIndex === localSlot && this.localSimBike && this.prediction) {
+        // LOCAL: reconcile → predict → sync visual
+        // 1. Reconcile FIRST on new server tick (corrects simBike state)
         if (newTick) {
-          this.reconcileLocalBike(bike, this.localSimBike, netStateFromSchema(sb, roomState.tick));
+          this.prediction.reconcile(bike, netStateFromSchema(sb, roomState.tick));
         }
+        // 2. Predict forward from (possibly corrected) state
+        this.prediction.predict(dt, input);
+        // 3. Sync visual after both reconcile + predict
+        bike.syncFromSimPredicted(this.localSimBike, dt);
         // Trail: sync from server when it grows beyond local prediction
         if (sb.trail.length > bike.trail.points.length) {
           this.syncTrailFromServer(bike, sb);
@@ -945,6 +955,9 @@ export class Game {
       }
     }
 
+    // Send input AFTER prediction so tick number is current
+    this.colyseus.sendInput(input, this.prediction?.currentTick);
+
     // Update power-up visuals (spawning/pickup handled via broadcast messages)
     this.powerUpManager.update(dt, this.elapsedTime, this.bikes, this.trails, false, null, []);
 
@@ -953,45 +966,6 @@ export class Game {
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
 
     this.updateTrailLiveHeads();
-  }
-
-  /** Reconcile local predicted SimBike with authoritative server state. */
-  private reconcileLocalBike(bike: Bike, simBike: SimBikeClass, serverState: ReturnType<typeof netStateFromSchema>): void {
-    // Death is always authoritative from server — check first
-    if (!serverState.alive && bike.alive) {
-      bike.applyNetState(serverState);
-      simBike.applyServerState(serverState);
-      return;
-    }
-
-    if (!serverState.alive) return;
-
-    // Position error between local prediction and server
-    const dx = serverState.x - simBike.position.x;
-    const dy = serverState.y - simBike.position.y;
-    const dz = serverState.z - simBike.position.z;
-    const error = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-    if (error > RENDER_OFFSET_SNAP_THRESHOLD) {
-      // Large disagreement: teleport (snap everything, zero offset)
-      simBike.applyServerState(serverState);
-      bike.renderOffset.set(0, 0, 0);
-      bike.renderAngleOffset = 0;
-    } else if (error > RENDER_OFFSET_MIN_CORRECTION) {
-      // Absorb correction into render offset so visual stays smooth
-      bike.renderOffset.x -= dx;
-      bike.renderOffset.y -= dy;
-      bike.renderOffset.z -= dz;
-      const angleDiff = wrapAngle(serverState.angle - simBike.angle);
-      bike.renderAngleOffset -= angleDiff;
-      simBike.applyServerState(serverState);
-    } else {
-      // Tiny error: just snap SimBike, no visual offset needed
-      simBike.applyServerState(serverState);
-    }
-
-    // Sync non-positional state to visual bike
-    bike.syncInvulnerabilityFromNet(serverState.invulnerable, serverState.invulnerableTimer);
   }
 
   /** Connect each trail's live head segment to its bike's current render position. */

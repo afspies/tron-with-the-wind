@@ -17,6 +17,9 @@ function serverState(overrides: Record<string, unknown> = {}) {
     surfaceType: SurfaceType.Floor as number,
     forwardX: 0, forwardY: 0, forwardZ: 1,
     doubleJumpCooldown: 0,
+    jumpCooldown: 0,
+    boostRechargeTimer: 0,
+    usedDoubleJumpThisAirborne: false,
     invulnerable: false, invulnerableTimer: 0,
     ...overrides,
   };

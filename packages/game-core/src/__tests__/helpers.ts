@@ -44,6 +44,9 @@ export function snapshot(bike: SimBike) {
     forwardY: bike.forward.y,
     forwardZ: bike.forward.z,
     doubleJumpCooldown: bike.doubleJumpCooldown,
+    jumpCooldown: bike.jumpCooldown,
+    boostRechargeTimer: bike.boostRechargeTimer,
+    usedDoubleJumpThisAirborne: bike.usedDoubleJumpThisAirborne,
     invulnerable: bike.invulnerable,
     invulnerableTimer: bike.invulnerableTimer,
   };

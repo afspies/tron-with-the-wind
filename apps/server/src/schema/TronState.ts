@@ -30,6 +30,10 @@ export class BikeSchema extends Schema {
   @type('float32') forwardZ: number = 1;
   @type('float32') vx: number = 0;
   @type('float32') vz: number = 0;
+  @type('float32') jumpCooldown: number = 0;
+  @type('float32') boostRechargeTimer: number = 0;
+  @type('boolean') usedDoubleJumpThisAirborne: boolean = false;
+  @type('uint32') lastInputTick: number = 0;
   @type([TrailPointSchema]) trail = new ArraySchema<TrailPointSchema>();
 }
 
