@@ -3,6 +3,7 @@ import { NET_TICK_DURATION_MS, RENDER_OFFSET_SNAP_THRESHOLD, RENDER_OFFSET_MIN_C
 import type { SimBike } from '@tron/game-core';
 import { InputBuffer } from './InputBuffer';
 import type { Bike } from '../game/Bike';
+import type { ReconciliationLogger } from './ReconciliationLogger';
 
 const FIXED_DT = NET_TICK_DURATION_MS / 1000; // ~0.033s
 
@@ -38,6 +39,7 @@ export class ClientPrediction {
   private predictionTick = 0;
   private accumulator = 0;
   private lastAcknowledgedTick = 0;
+  logger?: ReconciliationLogger;
 
   constructor(private simBike: SimBike) {}
 
@@ -117,6 +119,8 @@ export class ClientPrediction {
     const dy = oldY - newY;
     const dz = oldZ - newZ;
     const error = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const angleDelta = Math.abs(wrapAngle(oldAngle - newAngle));
+    this.logger?.log(this.predictionTick, error, angleDelta);
 
     if (error > RENDER_OFFSET_SNAP_THRESHOLD) {
       // Large error: teleport (zero visual offset)
@@ -128,6 +132,16 @@ export class ClientPrediction {
       bike.renderOffset.y += dy;
       bike.renderOffset.z += dz;
       bike.renderAngleOffset += wrapAngle(oldAngle - newAngle);
+
+      // Prevent runaway offset accumulation from rapid consecutive corrections
+      const maxOffset = 3.0;
+      const offsetLenSq = bike.renderOffset.x ** 2 + bike.renderOffset.y ** 2 + bike.renderOffset.z ** 2;
+      if (offsetLenSq > maxOffset * maxOffset) {
+        const scale = maxOffset / Math.sqrt(offsetLenSq);
+        bike.renderOffset.x *= scale;
+        bike.renderOffset.y *= scale;
+        bike.renderOffset.z *= scale;
+      }
     }
     // else: tiny error, no visual offset needed
 

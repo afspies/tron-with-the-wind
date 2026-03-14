@@ -17,6 +17,7 @@ import { Scoreboard } from '../ui/Scoreboard';
 import { ColyseusClient } from '../network/ColyseusClient';
 import { ClientPrediction } from '../network/ClientPrediction';
 import type { NetBikeState } from '../network/ClientPrediction';
+import { ReconciliationLogger } from '../network/ReconciliationLogger';
 import { Lobby } from '../ui/Lobby';
 import { TouchControls } from '../ui/TouchControls';
 import { Chat } from '../ui/Chat';
@@ -372,6 +373,12 @@ export class Game {
         // Create local SimBike for 3D client prediction
         this.localSimBike = new SimBikeClass(slot, PLAYER_COLORS[slot], schemaBike.x, schemaBike.z, schemaBike.angle);
         this.prediction = new ClientPrediction(this.localSimBike);
+        // Enable reconciliation logging via ?reconcile_log URL parameter
+        if (new URLSearchParams(window.location.search).has('reconcile_log')) {
+          this.prediction.logger = new ReconciliationLogger();
+          (window as any).__reconciliationLogger = this.prediction.logger;
+          console.log('[Reconciliation] Logger enabled — access via __reconciliationLogger.summary()');
+        }
       }
       this.bikes.push(bike);
       this.trails.push(bike.trail);

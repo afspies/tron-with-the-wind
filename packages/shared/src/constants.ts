@@ -45,9 +45,9 @@ export const COUNTDOWN_DURATION = 3;
 export const NET_TICK_DURATION_MS = 1000 / 30; // ~33.33ms per tick
 
 // Local predicted bike: snap physics to server, decay render offset smoothly
-export const VISUAL_CORRECTION_RATE = 18; // exponential decay speed for render offset
+export const VISUAL_CORRECTION_RATE = 12; // exponential decay speed for render offset
 export const RENDER_OFFSET_SNAP_THRESHOLD = 10; // error above which we teleport (zero offset)
-export const RENDER_OFFSET_MIN_CORRECTION = 0.05; // error below which we skip correction
+export const RENDER_OFFSET_MIN_CORRECTION = 0.25; // error below which we skip correction
 
 // Remote bikes: fractional render tick interpolation
 export const REMOTE_TICK_CORRECTION_RATE = 0.1; // drift correction blend per server tick
