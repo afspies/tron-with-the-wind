@@ -1,593 +1,846 @@
-# Vibe Reader — Bookmark App Design Spec
+# Memmi — Design Spec
 
-> A read-later app that helps you rediscover your saved content by *vibe*, not by date.
+> A calm read-later app that helps you choose the right saved piece for your current time, energy, and intent — then consume it at the depth you want.
 
-## The Problem
+## Product Thesis
 
-Existing read-later apps (Pocket [RIP], Instapaper, Readwise Reader) present bookmarks chronologically or by folder. But readers don't choose what to read next based on when they saved it — they choose based on **mood**: "I want something contemplative," "I want something technical and crunchy," "show me something short and surprising."
+People don't choose from their reading backlog by save date — they choose by available attention. Memmi is **summary-first**, **source-faithful**, and built to make backlog reading feel lighter rather than guiltier.
 
-Three core problems to solve:
-
-1. **Discovery by vibe** — surface the right article for the moment, not the most recent one
-2. **Progressive depth** — don't force full articles; let users engage at the summary level they want
-3. **Reliable content capture** — scrape and archive articles before they disappear behind paywalls or rot away
+The market window is real: Pocket is dead (July 2025), Omnivore was acquired and shut down (Nov 2024), and users are actively migrating. But the moat isn't "AI for bookmarks" — competitors are already adding AI features. Memmi's moat is **calm, intent-led text rediscovery with trustworthy summary-first reading**.
 
 ---
 
-## Market Context
+## Brand & Design Direction
 
-### The Opportunity Window
+Memmi should feel like a **contemporary literary object** — not a productivity dashboard, not a skeuomorphic bookshelf, and definitely not a dating app.
 
-- **Pocket shut down** (July 2025, Mozilla killed it)
-- **Omnivore shut down** as a service (ElevenLabs acquisition, Nov 2024)
-- Users are actively migrating; the market is wide open
-- **No existing app** does vibe/mood-based discovery for text content (mymind does it for images only)
-- **No bookmark app** uses embedding-based similarity search (Karakeep has an open feature request for it — GitHub issue #441)
+### Design Rules
 
-### Competitive Landscape
+- Warm paper-like backgrounds, dark ink text, restrained accent color palette
+- Generous whitespace and margin-like layout
+- **Text-first composition** — imagery is optional support, never the centerpiece
+- Subtle motion: lift, slide, fade, settle
+- No page-turn gimmicks, no slot-machine shuffle feel
+- Full gesture alternatives, keyboard support on web, `prefers-reduced-motion` support
+- **Paper stack aesthetic** — cards feel like leaves of paper, not app tiles
+
+### Voice & Tone
+
+- Thoughtful, not cute
+- Bookish, not precious
+- Intelligent, not "AI-powered"
+- Calm, not gamified
+
+---
+
+## Competitive Landscape
 
 | App | Status | AI Features | Discovery | Price |
 |-----|--------|-------------|-----------|-------|
 | Readwise Reader | Active, best-in-class | Ghostreader AI chat, summaries, spaced repetition | Chronological + folders | ~$8.99/mo |
-| Matter | Active | AI summaries, "see more like this" (post-read) | % match after reading | Free + $8/mo |
+| Matter | Active | AI summaries, prioritization, Queue decay | % match, resurfacing | Free + $8/mo |
 | Instapaper | Active, rising (Pocket refugees) | None | Chronological | Free + $2.99/mo |
+| Raindrop Pro | Active | AI assistant, AI suggestions, permanent copies | Collections + search | $3/mo |
 | Karakeep (fka Hoarder) | Open source, rising | AI auto-tagging (Ollama/OpenAI) | Full-text search | Free (self-host) |
-| Wallabag | Open source, mature | None | Folders/tags | Free (self-host) |
 | mymind | Active | "Same Vibe" for images | Visual similarity | $5.99-$12.99/mo |
 
-**Our differentiation**: Vibe-first discovery + progressive summarization + card-based triage. No one does all three.
+**Our differentiation**: Intent-led discovery + progressive summarization with source grounding + paper-stack triage. No one does all three.
 
 ---
 
-## Core UX Concept: Three Modes
+## Core Experience Model
 
-The app has three distinct interaction modes, each addressing a different user intent:
+Memmi has two primary surfaces and one contextual surface.
 
-### Mode 1: "Vibe Shuffle" (Discovery)
+### 1. Home — "For This Moment"
 
-**The headline feature.** A Tinder-style card stack, but instead of swiping on people, you're swiping through your reading backlog filtered by vibe.
+The main entry point. Home asks: **What do you have room for?**
 
-**How it works:**
-1. User opens the app and sees a **vibe picker** — either:
-   - Pre-computed mood clusters: "Deep Dives," "Quick Hits," "Thought-Provoking," "How-To," "Storytelling," "Contrarian Takes"
-   - A free-text prompt: "show me something about design that's under 5 minutes"
-   - A "Surprise Me" shuffle mode (random walk through embedding space)
-2. Articles appear as **swipeable cards** showing: title, source, hero image, one-line AI summary, estimated read time, and a mood/vibe tag
-3. **Swipe right** → "Read Now" (opens progressive reader)
-4. **Swipe left** → "Not now" (deprioritizes in future shuffles, doesn't delete)
-5. **Swipe up** → "More like this" (reseeds the deck with similar articles via embedding nearest-neighbor)
-6. **Swipe down** → "Archive" (done with it)
-7. **Tap** → Flip the card to reveal the bullet-point summary (progressive Layer 2)
+#### Intent Selectors
 
-**Why this works:** Swipe cards excel at binary triage. The limitation (too quick for considered decisions) is solved by the card-flip for a summary preview. You never have to commit to reading the full article from the card view.
+Rather than mixing length, depth, format, and tone into a bag of mood labels, the primary chooser is organized around the user's *state*:
 
-### Mode 2: "Reader" (Progressive Depth)
+| Selector | What it means |
+|----------|---------------|
+| **5 min** | Quick reads, time-constrained |
+| **15 min** | Medium commitment |
+| **Deep Focus** | Long, immersive pieces |
+| **Learn Something** | Tutorials, how-tos, technical depth |
+| **Reflect** | Essays, personal, contemplative |
+| **Catch Up** | Oldest unseen, neglected items |
+| **Surprise Me** | Random walk through embedding space |
 
-When a user commits to an article, they enter a **progressive reader** inspired by Tiago Forte's Progressive Summarization:
+Plus a **free-text bar** for natural language:
+- "design, under 5 minutes"
+- "something reflective but not too dense"
+- "one practical article about TypeScript"
 
-| Layer | What User Sees | How It's Generated |
-|-------|---------------|-------------------|
-| **L0: Card** | Title + one-liner + read time | Auto on save |
-| **L1: Key Points** | 3-7 bullet points | Auto on save (single LLM call) |
-| **L2: Rich Summary** | 2-3 paragraph summary with the most important quotes highlighted | Auto on save (same LLM call) |
-| **L3: Full Article** | Clean reader view of original content with AI-highlighted key passages | Readability extraction + extractive highlighting |
-| **L4: Deep Dive** | Chat with the article — ask questions, get clarifications, challenge claims | On-demand (Claude/GPT interaction) |
+#### The Reading Stack
 
-**The clever UX**: The reader defaults to **L1 (Key Points)** — not the full article. A simple scroll gesture or "Read More" button progressively reveals L2, then L3. Most users will find that L1 or L2 is enough. This dramatically reduces the "I'll never get through my reading list" anxiety.
+Home returns a small curated session of **6–10 candidates**, not an infinite deck. The interaction model is a **paper stack** — cards feel like leaves you're leafing through, not a feed to scroll.
 
-**Reading features at L3:**
+**Card contents** (text-first, editorial feel):
+- Title
+- Source + read time + format descriptor
+- One sentence: *why this fits the selected intent*
+- Optional hero image (only when it genuinely helps — not on every card)
+- No hashtags in the primary UI — instead: `Reflective · Essay · 7 min`
+
+**Card actions:**
+- **Keep** → adds to Today's Stack (a short session shelf of 1–3 chosen items)
+- **Pass** → deprioritizes in future sessions (doesn't delete, low stakes)
+- **Tap** → flip to reveal Quick Take bullets
+- **More like this** → visible button, reseeds with nearest neighbors
+
+**Gesture model** (simplified from the original 4-direction swipe):
+- Swipe right = Keep
+- Swipe left = Pass
+- Tap = Preview Quick Take
+- "More like this" and "Done" are visible buttons, not hidden gestures
+
+This preserves speed without making the app feel gimmicky. All gestures have button equivalents for accessibility.
+
+**End state:** User leaves with a **Today's Stack** — a short shelf of 1–3 chosen items to read now.
+
+### 2. Reader — Progressive Depth
+
+The reader opens when an item is selected. It is **not** a bottom-nav destination — it's a contextual view, not a browsable mode.
+
+Four visible layers with calm, explicit names:
+
+| Layer | Name | What User Sees | How It's Generated |
+|-------|------|---------------|-------------------|
+| L1 | **Quick Take** | 3–5 bullets, each grounded in source text | Auto on save (single LLM call) |
+| L2 | **Summary** | 2–3 paragraphs with key evidence | Auto on save (same LLM call) |
+| L3 | **Original** | Clean reader view of archived article | Readability extraction |
+| L4 | **Ask Memmi** | Grounded Q&A over the article | On-demand (chunked retrieval + LLM) |
+
+**Trust architecture:**
+- Every Quick Take bullet and key quote is **traceable back to a source passage**
+- Generated content is subtly but clearly labeled as generated
+- Quotes are **extracted as exact source spans**, not free-generated by the model
+- Easy one-tap verify: tap a bullet to see the source passage highlighted in L3
+
+**The key UX insight:** The reader defaults to **Quick Take** — not the full article. Most users will find that L1 or L2 is enough. This dramatically reduces "I'll never get through my reading list" anxiety.
+
+**First-class completion actions:**
+- **"Enough for now"** — summary-level completion is a valid outcome, not a failure
+- **"Mark finished"** — explicitly done with this piece
+- Track completion as: `previewed`, `summary-complete`, or `full-read`
+
+**Reading features (L3):**
 - Estimated read time
-- Text-to-speech (Web Speech API baseline, optional cloud TTS upgrade)
 - Highlight & annotate
 - Share specific quotes
-- Font/theme customization (table stakes)
+- Font/theme customization
+- Text-to-speech (Phase 3+)
 
-### Mode 3: "Library" (Organization)
+### 3. Library
 
-A traditional list/grid view for when users want to browse, search, or organize:
-- **Search**: Full-text search + semantic search ("articles about climate policy")
-- **Auto-tags**: AI-generated topic tags (like Karakeep)
-- **Collections**: User-created groupings
-- **Filters**: Read/unread, read time, source, date saved, vibe cluster
-- **Bulk actions**: Archive, delete, re-tag, export
+Where the backlog becomes manageable — not where it becomes "organized for organization's sake."
+
+**Primary sections:**
+- Inbox (unsorted saves)
+- Stack (shortlisted for reading)
+- Reading (in progress)
+- Finished
+- Archive
+- Collections (user-created)
+
+**Navigation:** Bottom nav is **Home** and **Library**. Search/command access is always available. Reader opens contextually from either surface.
+
+**Search** (hybrid):
+- Keyword / full-text search
+- Semantic retrieval (embed query → cosine similarity)
+- Structured filters: source, time, format, intent mode, saved date, status, read time
+
+**Smart shelves** do more of the organizational work than manual taxonomy. Collections remain user-created, but the system surfaces emergent groupings.
 
 ---
 
-## Architecture
+## Discovery & Ranking Model
 
-### The "Clever" Insight: One LLM Call Does Almost Everything
+### Facets (inferred on save)
 
-On article save, a single structured LLM call produces:
+Rather than making unsupervised clusters the primary UX primitive, each article gets a stable set of facets:
+
+- **Topic** (2–4 tags)
+- **Tone** (contemplative, technical, playful, urgent, etc.)
+- **Format** (essay, tutorial, news, opinion, interview, etc.)
+- **Effort/depth** (beginner, intermediate, advanced)
+- **Read time** (computed from word count)
+- **Timeliness** (breaking/timely vs. evergreen)
+
+### Session Ranking
+
+When a user selects an intent mode, candidates are ranked by:
+
+1. **Hard constraints** (e.g., max read time for "5 min" mode)
+2. **Semantic match** to the user's intent/query
+3. **Neglectedness boost** — items saved long ago that haven't been surfaced
+4. **Skip/snooze penalties** — recently passed items ranked lower
+5. **Diversity** across topic and source (sessions shouldn't collapse into near-duplicates)
+
+### Clustering (deferred to Phase 2+)
+
+Use clustering later for:
+- "More like this" refinement
+- Optional emergent shelves in Library
+- Library visualization for larger collections
+
+---
+
+## Capture & Processing
+
+### Save Pathways (all in Phase 1)
+
+| Method | Phase 1 Behavior |
+|--------|-----------------|
+| **Paste URL** | Full pipeline: extract → enrich → embed |
+| **Browser clipper** | Minimal MV3 extension: capture URL + page title + optional DOM, send to backend. Full DOM capture in Phase 2 |
+| **Import** | Pocket, Instapaper, Omnivore CSV/JSON import. Creates items with URLs, queues for processing |
+| **Mobile share sheet** | Expo share extension receives URL, queues for processing |
+
+### Processing Pipeline
+
+```
+URL received
+  │
+  ├─→ Immediately create user_item + placeholder document
+  │   (user sees card with title/URL instantly)
+  │
+  ├─→ Queue processing job
+  │     │
+  │     ├─ 1. Canonicalize URL, dedupe against documents table
+  │     ├─ 2. Extract article text + metadata
+  │     │     Primary: @mozilla/readability (fast, JS-native)
+  │     │     Fallback: Jina Reader API (hostile sites)
+  │     │     Future: Playwright render (JS-heavy, Phase 2+)
+  │     ├─ 3. Score extraction quality (word count, structure checks)
+  │     ├─ 4. Store clean article copy in documents table
+  │     ├─ 5. LLM structured enrichment call → summaries, facets, quotes
+  │     ├─ 6. Chunk + embed for retrieval and grounded chat
+  │     └─ 7. Index for search and discovery
+  │
+  └─→ Update user_item status: processing → ready
+      (card animates from placeholder to enriched)
+```
+
+**Runtime split:** Supabase Edge Functions handle ingestion/orchestration (receive URL, create records, dispatch). Heavy work (extraction, LLM calls, embedding, archival) runs on a **background worker queue** — Edge Functions have memory and duration limits that make them wrong for Playwright or long LLM calls.
+
+Worker options for Supabase: Inngest, Trigger.dev, or pg_cron + pg_net for simpler cases. Decision deferred to implementation, but the architecture assumes async workers from day one.
+
+**Latency target:** Placeholder card appears instantly. Enriched card (with Quick Take) within 10–15 seconds.
+
+### Archival
+
+- **Default:** Store clean HTML for all users (extracted article text)
+- **Opt-in:** Raw DOM snapshot / SingleFile archive for users who enable archival mode
+- **Privacy note:** Raw DOM capture from authenticated pages may include personalized/sensitive data — raw snapshots are opt-in and user-private only
+- **Content rot mitigation:** Articles disappear from the internet. The clean HTML archive means Memmi always has the content, even if the original URL dies. Surface a "source unavailable" indicator when the original is gone.
+
+### Browser Extension
+
+- **MV3** (Chrome Manifest V3) with `activeTab` permission (cleaner permission story than broad host access)
+- Content script + service worker architecture
+- **Phase 1:** Capture URL + page title + basic metadata. One-click save.
+- **Phase 2:** Full DOM capture for paywalled content the user has access to
+- **Separate Chrome/Firefox builds** from the start — MV3 behavior differs across browsers
+- **Licensing caution:** Omnivore and Karakeep extensions are AGPL. Reference for patterns, but don't copy code without licensing clarity.
+
+---
+
+## AI Architecture
+
+### Enrichment Call
+
+A single structured LLM call on save produces all metadata:
+
 ```json
 {
-  "one_liner": "A 15-word summary",
-  "key_points": ["Point 1", "Point 2", "Point 3"],
-  "rich_summary": "2-3 paragraph summary...",
-  "key_quotes": ["Most important quote 1", "Quote 2"],
-  "mood_tags": ["contemplative", "technical", "long-form"],
-  "topic_tags": ["machine-learning", "ethics", "governance"],
-  "estimated_difficulty": "intermediate",
-  "content_type": "essay"
-}
-```
-
-Cost: ~$0.001/article with GPT-4o mini or Claude Haiku. For 1,000 articles/month, that's **$1**. The embedding call on top is ~$0.01/month. Total AI cost for the entire pipeline: ~$1-2/month per user.
-
-This single call eliminates the need for separate tagging, summarization, mood classification, and difficulty estimation pipelines.
-
-### Tech Stack (Recommended: Minimum Viable Complexity)
-
-```
-┌─────────────────────────────────────────────────────┐
-│                   Frontend                           │
-│  Expo (React Native) — iOS + Android + Web (PWA)    │
-│  • react-native-deck-swiper (card swiping)          │
-│  • Framer Motion (web animations)                   │
-│  • Reader view: custom component                    │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│                   Backend                            │
-│  Supabase (managed PostgreSQL + Auth + Storage)      │
-│  • pgvector extension (embedding similarity search)  │
-│  • Edge Functions (article processing pipeline)      │
-│  • Row Level Security (multi-tenant by default)      │
-│  • Realtime subscriptions (sync across devices)      │
-└──────────────────────┬──────────────────────────────┘
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-   ┌────────────┐ ┌─────────┐ ┌──────────┐
-   │ Readability │ │ LLM API │ │ Embedding│
-   │ (extract)   │ │ (Claude │ │ API      │
-   │ + Playwright│ │  Haiku/ │ │ (OpenAI/ │
-   │   fallback  │ │  GPT-4o │ │  Nomic)  │
-   └────────────┘ │  mini)  │ └──────────┘
-                  └─────────┘
-```
-
-**Why Supabase?** It collapses auth, relational DB, vector search (pgvector), file storage, edge functions, and realtime sync into one managed service with a generous free tier. For a solo developer, this is the minimum-complexity choice. No separate vector DB needed — at personal scale (<10K articles), pgvector handles similarity search trivially.
-
-### Content Extraction Pipeline
-
-```
-URL saved
-  │
-  ├─ [Browser Extension path] ──→ Extension captures DOM
-  │   (handles paywalled content     from authenticated
-  │    the user has access to)        browser session
-  │                                        │
-  ├─ [URL-only path] ──────────────────────┤
-  │   Server fetches URL                   │
-  │   ├─ Try: @mozilla/readability (fast)  │
-  │   ├─ Fallback: Playwright render       │
-  │   └─ Fallback: Jina Reader API         │
-  │                                        │
-  ▼                                        ▼
-  Clean HTML + plain text + metadata
-  │
-  ├─→ Store original HTML (archive)
-  ├─→ Store clean text (reading)
-  ├─→ SingleFile snapshot (optional, for full visual archive)
-  │
-  ├─→ LLM structured call ──→ summaries, tags, mood, difficulty
-  ├─→ Embedding API call ──→ 768-dim vector → pgvector
-  │
-  └─→ Article ready for consumption
-```
-
-**Key decisions:**
-- **Primary extractor**: `@mozilla/readability` — best F1 score (0.970), JS/TS native, battle-tested (it's Firefox Reader View). No statistical difference from Trafilatura (Python), but keeps us in a single language.
-- **Fallback for JS-heavy sites**: Playwright headless browser. Expensive to run, so only triggered when Readability returns suspiciously little content.
-- **Fallback for hostile sites**: Jina Reader API (`r.jina.ai/{url}`) — free tier, returns clean markdown. Good escape hatch.
-- **Browser extension**: Captures the DOM client-side (like Omnivore did). This is the **only reliable way** to get content behind paywalls the user is logged into. The extension sends the full DOM to the backend for processing.
-- **Archival**: Store the extracted clean HTML. Optionally run SingleFile for a pixel-perfect snapshot. Articles disappear from the internet — archiving is non-negotiable.
-
-### Embedding & Vibe Discovery
-
-**Embedding model**: OpenAI `text-embedding-3-small` (768 dims, $0.02/M tokens) or Nomic Embed v1.5 (open source, runs locally). At 1,000 articles, the entire collection fits in memory — brute-force cosine similarity takes microseconds. pgvector becomes useful at 10K+ items.
-
-**Vibe clustering** (how "mood" categories emerge):
-
-1. **On save**: Each article gets a 768-dim embedding + LLM-generated mood tags
-2. **Periodically**: Run lightweight clustering (HDBSCAN or K-means) over all embeddings to discover natural topic/mood groups
-3. **Cluster labeling**: Ask the LLM to name each cluster based on its member articles ("Deep Technical Dives," "Personal Essays," "Quick News")
-4. **Vibe picker**: Present top clusters as swipeable mood chips. User taps one → deck is seeded with articles from that cluster, ranked by embedding distance from cluster centroid
-5. **"Surprise Me"**: Random walk — pick a random article, find its 5 nearest neighbors, present as a deck
-6. **Free-text vibe search**: Embed the user's query ("something about philosophy that's not too heavy"), find nearest articles by cosine similarity
-
-**Why this is better than manual tags**: Tags require user discipline. Embeddings discover relationships the user never would have tagged — an article about "sourdough bread" and one about "fermentation in winemaking" naturally cluster together without anyone tagging them both "fermentation."
-
-### Progressive Summarization Pipeline
-
-All generated in a **single structured LLM call** on save:
-
-```
-System: You are a reading assistant. Given an article, produce a structured
-analysis in JSON format.
-
-User: [article text, truncated to ~4000 tokens if needed]
-
-Response schema:
-{
   "one_liner": "max 20 words",
-  "key_points": ["3-7 bullet points, each 1-2 sentences"],
-  "rich_summary": "2-3 paragraphs capturing the core argument and key evidence",
-  "key_quotes": ["3-5 most important direct quotes from the article"],
-  "mood_tags": ["2-3 tags from: contemplative, technical, urgent, playful, contrarian, narrative, instructional, provocative, analytical, personal"],
-  "topic_tags": ["2-4 specific topic tags"],
-  "estimated_difficulty": "beginner | intermediate | advanced",
-  "content_type": "news | essay | tutorial | opinion | research | interview | listicle"
+  "key_points": [
+    {
+      "point": "Summary bullet",
+      "source_quote": "Exact text from the article that supports this point",
+      "source_offset": { "start": 1234, "end": 1290 }
+    }
+  ],
+  "rich_summary": "2-3 paragraphs",
+  "key_quotes": [
+    {
+      "quote": "Exact quote from the article",
+      "source_offset": { "start": 456, "end": 520 }
+    }
+  ],
+  "tone_tags": ["contemplative", "technical"],
+  "topic_tags": ["machine-learning", "ethics"],
+  "estimated_difficulty": "intermediate",
+  "content_type": "essay",
+  "timeliness": "evergreen"
 }
 ```
 
-**Model choice**: Claude Haiku or GPT-4o mini for bulk processing (~$0.001/article). Offer Claude Sonnet/GPT-4o for the on-demand "Deep Dive" chat (L4) — this is where quality matters and users are explicitly engaging.
+**Key differences from original spec:**
+- **Quotes are exact source spans** with character offsets, not free-generated text. The prompt instructs the model to extract verbatim; post-processing verifies against source.
+- **Tone and topic are separate facets** (not a mixed "mood_tags" bag)
+- **Timeliness** is a new facet for ranking freshness-sensitive content
+- Every AI field is **versioned by model + prompt version** for reprocessing
 
-**Local/self-hosted option**: Ollama running Mistral 7B or LLaMA 3 8B. Karakeep already validates this pattern. Quality is good enough for tagging/summarization. Free.
+**Model choice:** Claude Haiku or GPT-4o mini for bulk enrichment (~$0.001/article). Provider abstraction from day one — don't couple to a single vendor.
+
+**Cost model at scale:**
+
+| Scale | LLM Cost/mo | Embedding Cost/mo | Total AI/mo |
+|-------|-------------|-------------------|-------------|
+| 100 articles/mo (casual) | $0.10 | $0.001 | ~$0.10 |
+| 1,000 articles/mo (power) | $1.00 | $0.01 | ~$1.00 |
+| 10,000 articles/mo (heavy) | $10.00 | $0.10 | ~$10.00 |
+
+At 10K users averaging 200 articles/mo, total AI cost is ~$200/mo. Viable.
+
+### Embeddings
+
+- **Model:** OpenAI `text-embedding-3-small`
+- **Dimensions:** 1536 (default) or explicitly shortened to 768 via the `dimensions` parameter — make this an intentional decision, not an accident
+- **Index:** Start with exact search filtered by `user_id` (fast enough for personal-scale libraries <10K items). Add HNSW index only when latency requires it. (Supabase recommends HNSW over IVFFlat.)
+- **Reindexing:** At personal scale, re-embedding the entire library on model change is cheap (~$0.10 for 10K articles)
+
+### Grounded Chat (Ask Memmi — L4)
+
+- Chunk article into passages, embed each chunk
+- On question: embed query → retrieve top-k relevant chunks → LLM generates answer grounded in retrieved passages
+- Every claim in the answer cites the source chunk
+- Uses a more capable model (Claude Sonnet / GPT-4o) since the user is explicitly engaging
 
 ---
 
 ## Data Model
 
-```sql
--- Core tables (Supabase/PostgreSQL)
+Separating shared content from user state enables deduplication, model reprocessing, and clean multi-device sync.
 
-create table articles (
-  id            uuid primary key default gen_random_uuid(),
-  user_id       uuid references auth.users not null,
-  url           text not null,
-  title         text,
-  author        text,
-  site_name     text,
-  hero_image    text,
+```sql
+-- Canonical document content (shared, deduplicated by URL)
+create table documents (
+  id                uuid primary key default gen_random_uuid(),
+  canonical_url     text unique not null,
+  content_hash      text,                    -- hash of clean_text for change detection
+  title             text,
+  author            text,
+  site_name         text,
+  hero_image_url    text,
+  language          text,
 
   -- Extracted content
-  clean_html    text,          -- Readability output
-  plain_text    text,          -- For search + LLM input
-  word_count    integer,
-  read_time_min integer,       -- word_count / 238
+  clean_html        text,                    -- Readability output (archive)
+  clean_text        text,                    -- Plain text for search + LLM input
+  word_count        integer,
+  read_time_min     integer,                 -- word_count / 238
 
-  -- AI-generated (single LLM call)
-  one_liner     text,
-  key_points    jsonb,         -- ["point1", "point2", ...]
-  rich_summary  text,
-  key_quotes    jsonb,         -- ["quote1", "quote2", ...]
-  mood_tags     text[],        -- ARRAY['contemplative', 'technical']
-  topic_tags    text[],
-  difficulty    text,          -- beginner/intermediate/advanced
-  content_type  text,          -- essay/tutorial/news/etc.
+  -- Extraction metadata
+  extraction_method text,                    -- 'readability' | 'jina' | 'playwright' | 'extension_dom'
+  extraction_score  real,                    -- confidence in extraction quality
+  extracted_at      timestamptz,
 
-  -- Embedding
-  embedding     vector(768),   -- pgvector
-
-  -- State
-  status        text default 'unread',  -- unread/reading/read/archived
-  saved_at      timestamptz default now(),
-  read_at       timestamptz,
-
-  -- User engagement signals
-  swipe_action  text,          -- right/left/up/down from vibe shuffle
-  times_surfaced integer default 0,
-
-  created_at    timestamptz default now()
+  created_at        timestamptz default now(),
+  updated_at        timestamptz default now()
 );
 
--- Indexes
-create index on articles using ivfflat (embedding vector_cosine_ops) with (lists = 100);
-create index on articles using gin (mood_tags);
-create index on articles using gin (topic_tags);
-create index on articles (user_id, status);
-create index on articles using gin (to_tsvector('english', plain_text));  -- full text search
+-- AI-generated enrichment (versioned, reprocessable)
+create table document_ai (
+  id                uuid primary key default gen_random_uuid(),
+  document_id       uuid references documents not null,
 
--- Vibe clusters (periodically recomputed)
-create table vibe_clusters (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid references auth.users not null,
-  label       text,            -- AI-generated: "Deep Technical Dives"
-  centroid    vector(768),
-  article_count integer,
-  updated_at  timestamptz default now()
+  -- Summaries
+  one_liner         text,
+  key_points        jsonb,          -- [{point, source_quote, source_offset}]
+  rich_summary      text,
+  key_quotes        jsonb,          -- [{quote, source_offset}]
+
+  -- Facets
+  tone_tags         text[],
+  topic_tags        text[],
+  difficulty        text,           -- beginner/intermediate/advanced
+  content_type      text,           -- essay/tutorial/news/opinion/etc.
+  timeliness        text,           -- breaking/timely/evergreen
+
+  -- Versioning
+  model_id          text not null,  -- e.g. 'claude-haiku-4-5-20251001'
+  prompt_version    text not null,  -- e.g. 'v2'
+
+  created_at        timestamptz default now(),
+
+  unique(document_id, model_id, prompt_version)
+);
+
+-- Chunked content for retrieval + grounded chat
+create table document_chunks (
+  id                uuid primary key default gen_random_uuid(),
+  document_id       uuid references documents not null,
+  chunk_index       integer not null,
+  chunk_text        text not null,
+  char_offset_start integer,
+  char_offset_end   integer,
+  embedding         vector(1536),
+
+  unique(document_id, chunk_index)
+);
+
+-- Per-user item state (the user's relationship to a document)
+create table user_items (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid references auth.users not null,
+  document_id       uuid references documents not null,
+  original_url      text not null,           -- URL as saved (before canonicalization)
+
+  -- Status
+  status            text default 'inbox',    -- inbox/stack/reading/finished/archived
+  completion_depth  text,                    -- null/previewed/summary_complete/full_read
+
+  -- Surfacing signals
+  times_surfaced    integer default 0,
+  last_surfaced_at  timestamptz,
+  last_passed_at    timestamptz,
+  snoozed_until     timestamptz,
+
+  -- Timestamps
+  saved_at          timestamptz default now(),
+  started_at        timestamptz,
+  finished_at       timestamptz,
+
+  -- Processing
+  processing_status text default 'queued',   -- queued/processing/ready/failed
+
+  unique(user_id, document_id)
 );
 
 -- User highlights & annotations
 create table highlights (
-  id          uuid primary key default gen_random_uuid(),
-  article_id  uuid references articles not null,
-  user_id     uuid references auth.users not null,
-  text        text not null,
-  note        text,
-  position    jsonb,           -- {start_offset, end_offset} in clean_html
-  created_at  timestamptz default now()
+  id                uuid primary key default gen_random_uuid(),
+  user_item_id      uuid references user_items not null,
+  user_id           uuid references auth.users not null,
+
+  -- Anchor (robust against extraction changes)
+  quote_text        text not null,           -- the highlighted text
+  quote_context     text,                    -- surrounding text for fuzzy re-anchoring
+  char_offset_start integer,                 -- offset in clean_text (best-effort)
+  char_offset_end   integer,
+
+  note              text,                    -- user annotation
+  created_at        timestamptz default now()
 );
 
 -- Collections (user-created groupings)
 create table collections (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid references auth.users not null,
-  name        text not null,
-  description text,
-  created_at  timestamptz default now()
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid references auth.users not null,
+  name              text not null,
+  description       text,
+  created_at        timestamptz default now()
 );
 
-create table article_collections (
-  article_id    uuid references articles,
-  collection_id uuid references collections,
-  primary key (article_id, collection_id)
+create table user_item_collections (
+  user_item_id      uuid references user_items,
+  collection_id     uuid references collections,
+  primary key (user_item_id, collection_id)
 );
+
+-- Processing jobs (async pipeline tracking)
+create table processing_jobs (
+  id                uuid primary key default gen_random_uuid(),
+  user_item_id      uuid references user_items not null,
+  document_id       uuid references documents,
+  job_type          text not null,           -- 'extraction' | 'enrichment' | 'embedding' | 'archival'
+  status            text default 'pending',  -- pending/running/completed/failed
+  attempts          integer default 0,
+  last_error        text,
+  created_at        timestamptz default now(),
+  started_at        timestamptz,
+  completed_at      timestamptz
+);
+
+-- Interaction events (for ranking model feedback)
+create table interaction_events (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid references auth.users not null,
+  user_item_id      uuid references user_items,
+  event_type        text not null,           -- 'keep' | 'pass' | 'more_like_this' | 'open_quick_take' | 'open_summary' | 'open_full' | 'enough_for_now' | 'finished'
+  context           jsonb,                   -- {intent_mode, session_id, position_in_stack}
+  created_at        timestamptz default now()
+);
+
+-- Indexes
+create index on document_chunks using hnsw (embedding vector_cosine_ops);
+create index on user_items (user_id, status);
+create index on user_items (user_id, processing_status);
+create index on documents using gin (to_tsvector('english', clean_text));
+create index on document_ai using gin (tone_tags);
+create index on document_ai using gin (topic_tags);
+create index on interaction_events (user_id, created_at);
+
+-- Row Level Security
+alter table user_items enable row level security;
+alter table highlights enable row level security;
+alter table collections enable row level security;
+alter table user_item_collections enable row level security;
+alter table interaction_events enable row level security;
+-- documents and document_ai are shared; access gated through user_items joins
 ```
+
+### Key Data Model Decisions
+
+- **Documents are shared and deduplicated** by canonical URL. Two users saving the same article share the extraction and AI enrichment — saves cost and processing time.
+- **user_items is the user's relationship** to a document: status, completion, surfacing history, snooze state. This is what syncs across devices.
+- **document_ai is versioned** by model + prompt. When we improve the enrichment prompt, we can reprocess without losing the old data.
+- **Highlights use quote anchors + context**, not raw character offsets alone. Offsets are best-effort but the quote text + surrounding context allows fuzzy re-anchoring when extraction changes.
+- **interaction_events** capture the feedback loop for improving ranking over time.
 
 ---
 
-## Processing Pipeline (Edge Function / Background Worker)
+## Tech Stack
 
 ```
-Article Save Event
-       │
-       ▼
-  ┌─────────────────┐
-  │ 1. Extract       │  @mozilla/readability → clean HTML + text
-  │    Content        │  Fallback: Playwright → Jina Reader API
-  └────────┬──────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │ 2. Parallel AI   │  ┌─ LLM call → summaries + tags + mood
-  │    Processing     │  │  (single structured call, ~$0.001)
-  │                   │  └─ Embedding call → 768-dim vector (~$0.00001)
-  └────────┬──────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │ 3. Store &       │  Insert article row with all fields
-  │    Index          │  pgvector auto-indexes the embedding
-  └────────┬──────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │ 4. Optional:     │  SingleFile snapshot (if user has archival enabled)
-  │    Archive        │  Store in Supabase Storage
-  └───────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                    Frontend                           │
+│  Expo (React Native) — iOS + Android + Web           │
+│  • Expo Router (file-based navigation)               │
+│  • React Native Reanimated (paper stack animations)  │
+│  • React Native Gesture Handler (swipe/tap)          │
+│  • Custom reader component                           │
+│  • expo-sqlite (local offline cache)                 │
+└────────────────────────┬─────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────┐
+│                    Backend                            │
+│  Supabase (PostgreSQL + Auth + Storage + Realtime)   │
+│  • pgvector extension (embedding similarity search)  │
+│  • Edge Functions (ingestion, orchestration)          │
+│  • Row Level Security (multi-tenant by default)      │
+│  • Realtime subscriptions (sync across devices)      │
+│  Runtime: Bun                                        │
+└────────────────────────┬─────────────────────────────┘
+                         │
+            ┌────────────┼────────────┐
+            ▼            ▼            ▼
+     ┌────────────┐ ┌─────────┐ ┌──────────┐
+     │ Readability │ │ LLM API │ │ Embedding│
+     │ (extract)   │ │ (Claude │ │ API      │
+     │ + Jina      │ │  Haiku/ │ │ (OpenAI) │
+     │  fallback   │ │  GPT-4o │ └──────────┘
+     └────────────┘ │  mini)  │
+                    └─────────┘
+
+┌──────────────────────────────────────────────────────┐
+│                Background Workers                     │
+│  Inngest / Trigger.dev / BullMQ (on Bun)             │
+│  • Article extraction                                │
+│  • LLM enrichment                                    │
+│  • Embedding generation                              │
+│  • Archival snapshots                                │
+│  • Import processing (bulk)                          │
+└──────────────────────────────────────────────────────┘
 ```
 
-**Latency budget**: Steps 1+2 should complete in <10 seconds. The user sees the article card immediately (with title/URL from the save action), and the AI-generated fields populate asynchronously. A subtle animation or "processing..." indicator shows the card is being enriched.
+### Why This Stack
+
+- **Supabase** collapses auth, relational DB, vector search, file storage, edge functions, and realtime sync into one managed service. For a solo developer, this is minimum-complexity.
+- **Expo** gives iOS + Android + Web from one codebase. The early wedge includes mobile share sheet and offline reading, so going native from the start is justified.
+- **Bun** for worker runtime — fast, good DX, native TypeScript.
+- **pgvector** — no separate vector DB needed. At personal scale (<10K articles per user), it handles similarity search trivially.
+
+---
+
+## Offline & Sync (Directional)
+
+Offline reading is essential for a read-later app — people read on planes, subways, and in dead zones. The sync model needs to be right from the architecture phase, even if full implementation is phased.
+
+### Principles
+
+1. **Read-heavy, write-light.** Users mostly read offline. Writes are: status changes, highlights, notes, new URL saves. Conflict surface is small.
+2. **Local-first for reading.** Articles in the user's Stack/Reading list are cached locally with their Quick Take and Summary. Full offline reading without network.
+3. **Server-authoritative for enrichment.** AI processing always happens server-side. Local cache receives results via sync.
+4. **Last-write-wins for most fields.** Status changes, completion depth, timestamps — LWW is fine. Highlights and notes are append-only, so conflicts are rare.
+
+### Architecture (directional)
+
+- **Local DB:** `expo-sqlite` stores a subset of `user_items`, `documents`, `document_ai`, and `highlights` for offline access
+- **Sync trigger:** On app foreground, pull changes since last sync timestamp. Supabase Realtime for live updates when online.
+- **Offline queue:** Saves, status changes, and highlights are queued locally and flushed on reconnect.
+- **Cache strategy:** Auto-cache items in Stack and Reading status. User can manually cache others. Respect device storage limits.
+- **Conflict resolution:** LWW with server timestamp for status fields. Highlights/notes are CRDTs or append-only (no conflict). Document content is immutable after extraction (no conflict).
+
+### Key Decisions to Make During Implementation
+
+- Exact local DB schema (mirror of server or denormalized for read performance?)
+- Sync protocol: polling vs. Supabase Realtime channels vs. hybrid
+- Storage budget per device and eviction policy
+- Whether to use an existing sync library (e.g., PowerSync, ElectricSQL) or roll a simple one
 
 ---
 
 ## Screens (Wire-level Descriptions)
 
-### Home / Vibe Shuffle
+### Home — "For This Moment"
 ```
-┌──────────────────────────────┐
-│  [logo]  Vibe Reader    [≡]  │
-│                              │
-│  ┌────────────────────────┐  │
-│  │ How are you feeling?   │  │
-│  │                        │  │
-│  │ [Deep Dives] [Quick]   │  │
-│  │ [Thoughtful] [How-To]  │  │
-│  │ [Surprise Me ✦]        │  │
-│  │                        │  │
-│  │   or type a vibe...    │  │
-│  └────────────────────────┘  │
-│                              │
-│  ┌────────────────────────┐  │
-│  │                        │  │
-│  │    [Hero Image]        │  │
-│  │                        │  │
-│  │  Article Title Here    │  │
-│  │  source.com · 4 min    │  │
-│  │                        │  │
-│  │  "One-line summary     │  │
-│  │   of the article"      │  │
-│  │                        │  │
-│  │  #contemplative #tech  │  │
-│  │                        │  │
-│  │  ← skip    read now →  │  │
-│  │     ↑ more like this   │  │
-│  │     ↓ archive          │  │
-│  └────────────────────────┘  │
-│                              │
-│  ─── ─── ─── (card stack)    │
-│                              │
-│  [Shuffle]  [Reader]  [Lib]  │
-└──────────────────────────────┘
+┌──────────────────────────────────┐
+│  memmi                      [≡]  │
+│                                  │
+│  What do you have room for?      │
+│                                  │
+│  [5 min] [15 min] [Deep Focus]   │
+│  [Learn] [Reflect] [Catch Up]    │
+│  [Surprise Me]                   │
+│                                  │
+│  ┌─ or describe ──────────────┐  │
+│  │  "something about design"  │  │
+│  └────────────────────────────┘  │
+│                                  │
+│  ┌────────────────────────────┐  │
+│  │                            │  │
+│  │  The Bitter Lesson         │  │
+│  │  richsutton.com · 8 min   │  │
+│  │  Reflective · Essay        │  │
+│  │                            │  │
+│  │  Argues that general       │  │
+│  │  methods leveraging        │  │
+│  │  computation win over      │  │
+│  │  hand-crafted approaches   │  │
+│  │                            │  │
+│  │  [Keep]          [Pass]    │  │
+│  │       [More like this]     │  │
+│  └────────────────────────────┘  │
+│    ╌╌╌ ╌╌╌ ╌╌╌  (paper stack)   │
+│                                  │
+│  [Home]                  [Lib]   │
+└──────────────────────────────────┘
 ```
 
-### Progressive Reader
+### Reader — Progressive Depth
 ```
-┌──────────────────────────────┐
-│  ← Back         [TTS] [...]  │
-│                              │
-│  Article Title               │
-│  by Author · source.com      │
-│  4 min read · #contemplative │
-│                              │
-│  ┌ Key Points ─────────────┐ │
-│  │ • First key point here  │ │
-│  │ • Second key point      │ │
-│  │ • Third key point       │ │
-│  │ • Fourth key point      │ │
-│  └─────────────────────────┘ │
-│                              │
-│      [▼ Read Summary]        │
-│                              │  ← Tap to expand L2
-│  ┌ Summary ────────────────┐ │
-│  │ Two paragraph summary   │ │
-│  │ of the article with     │ │
-│  │ highlighted quotes...   │ │
-│  └─────────────────────────┘ │
-│                              │
-│      [▼ Read Full Article]   │  ← Tap to expand L3
-│                              │
-│  ┌ Full Article ───────────┐ │
-│  │ Clean reader view with  │ │
-│  │ AI-highlighted passages │ │
-│  │ (tap to highlight more) │ │
-│  │ ...                     │ │
-│  └─────────────────────────┘ │
-│                              │
-│  ┌──────────────────────────┐│
-│  │ 💬 Ask about this article││ ← L4: Deep Dive chat
-│  └──────────────────────────┘│
-└──────────────────────────────┘
+┌──────────────────────────────────┐
+│  ← Back              [⋯]        │
+│                                  │
+│  The Bitter Lesson               │
+│  Rich Sutton · richsutton.com    │
+│  8 min · Reflective · Essay      │
+│                                  │
+│  ┌─ Quick Take ──────────────┐   │
+│  │                           │   │
+│  │ • General methods that    │   │
+│  │   leverage computation    │   │
+│  │   ultimately dominate ¹   │   │
+│  │                           │   │
+│  │ • Researchers repeatedly  │   │
+│  │   build in domain         │   │
+│  │   knowledge, only to be   │   │
+│  │   surpassed by search     │   │
+│  │   and learning ²          │   │
+│  │                           │   │
+│  │ • The "bitter lesson" is  │   │
+│  │   that our minds are      │   │
+│  │   the bottleneck, not     │   │
+│  │   our methods ³           │   │
+│  │                           │   │
+│  │  ¹²³ tap to see source    │   │
+│  └───────────────────────────┘   │
+│                                  │
+│  [Enough for now]                │
+│                                  │
+│       [▼ Read Summary]           │
+│       [▼ Read Original]          │
+│       [Ask Memmi]                │
+│                                  │
+│  [Mark finished]                 │
+└──────────────────────────────────┘
 ```
 
 ### Library
 ```
-┌──────────────────────────────┐
-│  Library          [🔍] [+]   │
-│                              │
-│  [All] [Unread] [Collections]│
-│                              │
-│  🔍 Search or describe...    │
-│  (full-text + semantic)      │
-│                              │
-│  ┌──────────┐ ┌──────────┐  │
-│  │ [image]  │ │ [image]  │  │
-│  │ Title    │ │ Title    │  │
-│  │ 3 min    │ │ 8 min    │  │
-│  │ #quick   │ │ #deep    │  │
-│  └──────────┘ └──────────┘  │
-│  ┌──────────┐ ┌──────────┐  │
-│  │ [image]  │ │ [image]  │  │
-│  │ Title    │ │ Title    │  │
-│  │ 5 min    │ │ 12 min   │  │
-│  │ #howto   │ │ #essay   │  │
-│  └──────────┘ └──────────┘  │
-│                              │
-│  [Shuffle]  [Reader]  [Lib]  │
-└──────────────────────────────┘
+┌──────────────────────────────────┐
+│  Library               [🔍] [+]  │
+│                                  │
+│  [Inbox] [Stack] [Reading]       │
+│  [Finished] [Collections]        │
+│                                  │
+│  ┌─ Search ───────────────────┐  │
+│  │  articles about climate... │  │
+│  └────────────────────────────┘  │
+│                                  │
+│  ┌────────────────────────────┐  │
+│  │ The Bitter Lesson          │  │
+│  │ richsutton.com · 8 min    │  │
+│  │ Reflective · Essay         │  │
+│  └────────────────────────────┘  │
+│  ┌────────────────────────────┐  │
+│  │ How to Do Great Work       │  │
+│  │ paulgraham.com · 15 min   │  │
+│  │ Instructional · Essay      │  │
+│  └────────────────────────────┘  │
+│  ┌────────────────────────────┐  │
+│  │ Attention Is All You Need  │  │
+│  │ arxiv.org · 25 min        │  │
+│  │ Technical · Research       │  │
+│  └────────────────────────────┘  │
+│                                  │
+│  [Home]                  [Lib]   │
+└──────────────────────────────────┘
 ```
-
----
-
-## Browser Extension
-
-**Functionality:**
-1. One-click save (like Pocket's was)
-2. Captures the DOM from the current page (critical for paywalled content)
-3. Sends DOM + URL + metadata to backend API
-4. Shows confirmation with one-liner summary when processing completes
-5. Optional: highlight text on any page → save highlight + article in one action
-
-**Architecture**: Manifest V3 Chrome extension + Firefox equivalent. Content script extracts DOM via `document.cloneNode(true)`, sends to background worker, which POSTs to the Supabase Edge Function.
-
-**Reference implementation**: Omnivore's extension (open source, AGPL-3.0) and Karakeep's extension are both good starting points.
-
----
-
-## Build vs. Extend Decision
-
-### Option A: Build from scratch on Supabase + Expo
-**Pros**: Total control, clean architecture, no legacy baggage
-**Cons**: More initial work, need to build reader view, extension from scratch
-
-### Option B: Fork/extend Karakeep
-**Pros**: Already has browser extension, mobile app, AI tagging, article parsing, SingleFile archival, Pocket/Omnivore import
-**Cons**: Next.js (not mobile-native), SQLite (would need to migrate to PostgreSQL for pgvector), no embedding infrastructure, would need significant UI overhaul for card-swiping
-
-### Recommendation: **Option A with Karakeep as reference**
-
-Karakeep validates the patterns (AI tagging, browser extension, content extraction) but its UX is traditional list-based. The vibe-shuffle concept is fundamentally different enough that forking would create more tech debt than starting fresh. Use Karakeep's source code as a reference for:
-- Browser extension content capture
-- SingleFile integration
-- Ollama integration for self-hosted AI
-- Pocket/Omnivore import logic
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: Core Save + Read (MVP)
-- Supabase project setup (auth, DB, storage, edge functions)
-- Article save via URL (Readability extraction)
-- Single LLM call → summaries + tags + mood
-- Embedding generation + pgvector storage
-- Basic progressive reader (L0-L2)
-- Simple list view (Library)
-- Web app (PWA via Expo Web)
+### Phase 0: Design & Feel (1–2 weeks)
 
-### Phase 2: Vibe Discovery
-- Vibe clustering (HDBSCAN over embeddings)
-- Cluster labeling (LLM names the clusters)
-- Card-swipe UI (Vibe Shuffle screen)
-- "More like this" (swipe up → nearest neighbors)
-- Free-text vibe search (embed query → cosine similarity)
-- "Surprise Me" mode
+Before building features, nail the aesthetic and interaction feel.
 
-### Phase 3: Rich Reading + Extension
-- Browser extension (Chrome, with DOM capture)
-- Full article reader view (L3) with highlighting
-- Text-to-speech
-- Article chat / Deep Dive (L4)
+- Design system: color palette, typography, spacing, motion language
+- Paper stack card prototype (Reanimated + Gesture Handler)
+- Reader typography and progressive disclosure prototype
+- Test with static content — does it feel calm, bookish, trustworthy?
+- Iterate until the cards feel like paper, not like a feed
+
+This phase produces the visual and interaction foundation everything else builds on.
+
+### Phase 1: Core Loop (MVP)
+
+The minimum to validate: save → enrich → browse → read.
+
+- Supabase project setup (auth, DB with schema above, RLS policies, storage)
+- URL save via paste (+ mobile share sheet via Expo)
+- Processing pipeline: Readability extraction → LLM enrichment → embedding
+- Background worker queue (Inngest or Trigger.dev)
+- Progressive reader (Quick Take + Summary + Original)
+- Library with Inbox/Stack/Reading/Finished views
+- Basic "For This Moment" home with intent selectors
+- Simple ranking (time constraint + semantic match + neglectedness)
+- **Browser clipper v1** — MV3 extension, URL + title save, one-click
+- **Import** — Pocket/Instapaper/Omnivore file import, queued processing
+- **Offline reading** — cache Stack/Reading items locally via expo-sqlite
+- Basic sync: pull on foreground, offline write queue
+
+### Phase 2: Discovery & Personalization
+
+- Paper stack card interaction polish
+- "More like this" (nearest neighbors in embedding space)
+- Free-text intent search (embed query → cosine similarity)
+- "Surprise Me" (random walk through embedding space)
+- Feedback loop: keep/pass/completion signals improve ranking
+- Today's Stack as a persistent session concept
+- Emergent shelves in Library (lightweight clustering for suggestions)
+- Smart collections
+
+### Phase 3: Rich Reading & Trust
+
+- Full DOM capture in browser extension (paywalled content)
+- Ask Memmi (grounded article Q&A with source citations)
 - Highlight & annotation system
-
-### Phase 4: Mobile + Polish
-- Expo native builds (iOS + Android)
-- Offline reading (cache articles locally)
-- Push notifications ("Today's vibe: 3 articles about design thinking")
-- Import from Pocket, Omnivore, Instapaper, Raindrop
+- Text-to-speech
+- Archival mode (opt-in raw snapshots)
+- "Source unavailable" detection and display
 - Export to Readwise, Notion, Obsidian
+
+### Phase 4: Native Polish & Growth
+
+- Native mobile polish (iOS + Android specific affordances)
+- Push notifications ("3 pieces that match your morning energy")
+- Multi-device sync hardening
+- Sharing and social features (share a Quick Take, reading lists)
+- Self-hosted option documentation (Supabase self-host + Ollama)
 
 ---
 
-## Open Source Libraries & Services Referenced
+## Success Metrics
 
-### Content Extraction
-| Tool | Language | Role | License |
-|------|----------|------|---------|
-| [@mozilla/readability](https://github.com/mozilla/readability) | JS/TS | Primary article extractor | Apache-2.0 |
-| [Playwright](https://playwright.dev/) | JS/TS | Headless browser fallback | Apache-2.0 |
-| [Jina Reader](https://jina.ai/reader/) | API | Hostile site fallback | Free tier |
-| [SingleFile](https://github.com/nickthedick/single-file-core) | JS | Full-page archival | AGPL-3.0 |
+Track the product like a reading system, not a storage system.
 
-### AI & Embeddings
-| Tool | Role | Cost |
-|------|------|------|
-| Claude Haiku / GPT-4o mini | Structured summarization + tagging | ~$0.001/article |
-| OpenAI text-embedding-3-small | Article embeddings | ~$0.01/1000 articles |
-| [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) | Self-hosted embedding alternative | Free |
-| [Ollama](https://ollama.ai) + Mistral 7B | Self-hosted summarization | Free |
-| Claude Sonnet / GPT-4o | On-demand deep dive chat | ~$0.02/article |
+### Capture & Processing
+- Capture success rate (% of URLs that produce a usable document)
+- Median time from save to enriched card
+- Extraction quality score distribution
 
-### Infrastructure
-| Tool | Role | Cost |
-|------|------|------|
-| [Supabase](https://supabase.com) | Auth, DB (pgvector), storage, edge functions | Free tier generous |
-| [Expo](https://expo.dev) | Cross-platform app (iOS, Android, Web) | Free |
-| pgvector | Vector similarity search in PostgreSQL | Free (Supabase built-in) |
+### Reading & Engagement
+- % of saved items that reach Quick Take view
+- % that reach Summary view
+- % that reach Full Read
+- "Enough for now" vs "Mark finished" ratio (both are success)
+- Save-to-read conversion within 7 days and 30 days
 
-### Reference Implementations
-| Project | What to Learn From It |
-|---------|----------------------|
-| [Karakeep](https://github.com/karakeep-app/karakeep) | Browser extension, SingleFile integration, Ollama AI tagging, import logic |
-| [Omnivore](https://github.com/omnivore-app/omnivore) | DOM capture in extensions, Readability fork, full-stack architecture |
-| [ArchiveBox](https://github.com/ArchiveBox/ArchiveBox) | Multi-format archival strategies |
+### Discovery
+- Weekly session count (Home → select intent → browse stack)
+- Keep rate per session (keeps / cards surfaced)
+- "More like this" usage
+- Free-text search usage vs. intent selector usage
+
+### Retention
+- Weekly active readers (users who read at least one Quick Take)
+- Backlog growth rate vs. completion rate
+- 30-day retention
+
+---
+
+## Open Decisions
+
+1. **Embedding dimensions:** 1536 (default) vs. 768 (smaller, cheaper storage). Benchmark quality difference at our scale before committing.
+
+2. **Worker infrastructure:** Inngest vs. Trigger.dev vs. BullMQ on Bun. Evaluate based on Supabase integration, retry semantics, and DX.
+
+3. **Sync library:** Build simple polling sync vs. adopt PowerSync/ElectricSQL. Depends on how complex offline gets in practice.
+
+4. **AGPL boundaries:** SingleFile, Omnivore, and Karakeep are all AGPL. Reference patterns freely, but get licensing clarity before shipping any derived code in a hosted product.
+
+5. **Privacy stance on LLM processing:** Decide early whether content from authenticated captures (paywalled articles) flows through hosted LLM providers. Make this visible in settings.
+
+6. **Brand/naming clearance:** There is an existing product at memmi.app. Do trademark/domain review before design work goes too far.
 
 ---
 
 ## Key Design Principles
 
-1. **Summaries first, full articles second.** Default to showing the least content needed to make a decision. Most bookmarked articles don't need full reads.
+1. **Summaries first, full articles second.** Default to the least content needed to make a decision. Summary-level completion is a valid outcome.
 
-2. **AI is invisible infrastructure, not a feature.** Users don't care that embeddings power vibe discovery — they care that the app "gets" what they want to read. Never show "AI-powered" badges; just make it work.
+2. **Every claim has a source.** Generated content is traceable. Trust is earned through transparency, not hidden behind "AI magic."
 
-3. **Every save should feel instant.** Processing happens in the background. The card appears immediately with URL/title; AI enrichment populates within seconds.
+3. **Every save feels instant.** Processing is background. The card appears immediately; enrichment populates within seconds.
 
-4. **Swipe actions are forgiving.** "Skip" doesn't delete — it just deprioritizes. Everything is recoverable from the Library. Low-stakes interaction encourages exploration.
+4. **Actions are forgiving.** "Pass" doesn't delete — it deprioritizes. Everything is recoverable. Low-stakes interaction encourages exploration.
 
-5. **Self-hostable as an option.** Use Supabase for managed hosting, but keep the architecture compatible with self-hosted PostgreSQL + Ollama for users who want full control (Karakeep proves this market exists).
+5. **AI is invisible infrastructure, not a feature.** Users don't see "AI-powered" badges. They see a reading app that understands what they want.
+
+6. **The app should feel like a book, not a feed.** Paper textures, generous margins, editorial typography, finite sessions. Calm, not addictive.
 
 ---
 
-## Risks & Mitigations
+## References
 
-| Risk | Mitigation |
-|------|-----------|
-| Readability fails on JS-heavy sites | Playwright fallback → Jina Reader fallback. Browser extension path avoids this entirely. |
-| LLM costs at scale | Haiku/4o-mini keeps costs at ~$1/1000 articles. Ollama for self-hosters. Batch processing during off-peak. |
-| Vibe clusters feel arbitrary | Let users rename/merge clusters. Add manual mood override per article. Clusters improve as library grows. |
-| Card fatigue (swipe burnout) | Limit deck size (20 cards per session). "That's enough for now" card at the end. Multiple entry points (Library, Search, not just Shuffle). |
-| Content rot (articles disappear) | Archive on save (clean HTML). Optional SingleFile for pixel-perfect snapshots. |
-| Embedding model quality | Start with OpenAI (best quality/cost). Nomic Embed as fallback. Re-embed entire library if switching models (cheap at personal scale). |
+### Content Extraction
+| Tool | Role | License |
+|------|------|---------|
+| [@mozilla/readability](https://github.com/mozilla/readability) | Primary article extractor | Apache-2.0 |
+| [Jina Reader](https://jina.ai/reader/) | Hostile site fallback | Free tier / API key |
+| [Playwright](https://playwright.dev/) | JS-heavy site fallback (Phase 2+) | Apache-2.0 |
+| [SingleFile](https://github.com/gildas-lormeau/SingleFile) | Full-page archival (Phase 3) | AGPL-3.0 |
+
+### AI & Embeddings
+| Tool | Role | Cost |
+|------|------|------|
+| Claude Haiku / GPT-4o mini | Structured enrichment | ~$0.001/article |
+| OpenAI text-embedding-3-small | Article + chunk embeddings | ~$0.02/M tokens |
+| Claude Sonnet / GPT-4o | On-demand grounded chat (L4) | ~$0.02/conversation |
+| Ollama + local models | Self-hosted alternative | Free |
+
+### Infrastructure
+| Tool | Role |
+|------|------|
+| [Supabase](https://supabase.com) | Auth, DB (pgvector), storage, edge functions, realtime |
+| [Expo](https://expo.dev) | Cross-platform app (iOS, Android, Web) |
+| [Bun](https://bun.sh) | Worker runtime |
+| pgvector | Vector similarity search in PostgreSQL |
+
+### Reference Implementations (patterns, not code)
+| Project | What to Learn From It | License |
+|---------|----------------------|---------|
+| [Karakeep](https://github.com/karakeep-app/karakeep) | Extension, SingleFile integration, Ollama AI tagging, import | AGPL-3.0 |
+| [Omnivore](https://github.com/omnivore-app/omnivore) | DOM capture, Readability fork, full-stack architecture | AGPL-3.0 |
+| [ArchiveBox](https://github.com/ArchiveBox/ArchiveBox) | Multi-format archival strategies | MIT |
