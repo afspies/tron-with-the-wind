@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD, RENDER_OFFSET_SNAP_THRESHOLD, RENDER_OFFSET_MIN_CORRECTION, wrapAngle } from '@tron/shared';
-import { Simulation, SimBike as SimBikeClass, SimTrail } from '@tron/game-core';
+import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD, LOCAL_LOOKAHEAD_TICKS } from '@tron/shared';
+import { Simulation, SimTrail } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
 import { setupLighting } from '../scene/Lighting';
@@ -61,16 +61,13 @@ export class Game {
   // Headless simulation (quickplay)
   private simulation: Simulation | null = null;
 
-  // Client-side prediction SimBike (online mode)
-  private localSimBike: SimBikeClass | null = null;
-  private predictionAccumulator: number = 0;
-
   // Network (Colyseus)
   private colyseus: ColyseusClient;
   private lobby: Lobby;
   private lastServerPhase = '';
   private lastServerTick = 0;
   private remoteRenderTick = 0;
+  private localRenderTick = 0;
 
   // Power-ups
   private powerUpManager!: PowerUpManager;
@@ -361,12 +358,6 @@ export class Game {
         schemaBike.x, schemaBike.z, schemaBike.angle,
         this.ctx.scene,
       );
-      if (slot === localSlot) {
-        bike.isLocalPredicted = true;
-        // Create local SimBike for 3D client prediction
-        this.localSimBike = new SimBikeClass(slot, PLAYER_COLORS[slot], schemaBike.x, schemaBike.z, schemaBike.angle);
-        this.predictionAccumulator = 0;
-      }
       this.bikes.push(bike);
       this.trails.push(bike.trail);
     }
@@ -400,21 +391,12 @@ export class Game {
     this.powerUpManager.reset();
     this.scoreboard.hideAll();
     this.remoteRenderTick = 0;
+    this.localRenderTick = 0;
 
     // Reset bikes from server positions
     for (let i = 0; i < this.bikes.length && i < serverState.bikes.length; i++) {
       const sb = serverState.bikes[i];
       this.bikes[i].reset(sb.x, sb.z, sb.angle);
-    }
-
-    // Reset local SimBike for prediction
-    if (this.localSimBike) {
-      const localSlot = this.config.localSlot;
-      const localSb = serverState.bikes.find((b: any) => b.slot === localSlot);
-      if (localSb) {
-        this.localSimBike.reset(localSb.x, localSb.z, localSb.angle);
-        this.predictionAccumulator = 0;
-      }
     }
 
     this.round.roundNumber = serverState.roundNumber;
@@ -750,8 +732,6 @@ export class Game {
     this.bikes = [];
     this.trails = [];
     this.simulation = null;
-    this.localSimBike = null;
-    this.predictionAccumulator = 0;
     this.powerUpManager.dispose();
     this.chat.hide();
     this.minimap.hide();
@@ -893,17 +873,26 @@ export class Game {
     const newTick = roomState.tick !== this.lastServerTick;
     if (newTick) this.lastServerTick = roomState.tick;
 
-    // Advance fractional render tick at frame rate, targeting one tick behind
-    // the server so interpolation always has data ahead of the render point.
+    // Advance fractional render ticks at frame rate.
+    // Remote bikes target 1 tick behind server (interpolation has data ahead).
+    // Local bike targets LOCAL_LOOKAHEAD_TICKS ahead of server (extrapolation for input responsiveness).
     const tickDurationSec = NET_TICK_DURATION_MS / 1000;
     this.remoteRenderTick += dt / tickDurationSec;
+    this.localRenderTick += dt / tickDurationSec;
     if (newTick) {
-      const targetTick = roomState.tick - 1;
-      const drift = targetTick - this.remoteRenderTick;
-      if (Math.abs(drift) > REMOTE_TICK_SNAP_THRESHOLD) {
-        this.remoteRenderTick = targetTick;
+      const targetRemote = roomState.tick - 1;
+      const remoteDrift = targetRemote - this.remoteRenderTick;
+      if (Math.abs(remoteDrift) > REMOTE_TICK_SNAP_THRESHOLD) {
+        this.remoteRenderTick = targetRemote;
       } else {
-        this.remoteRenderTick += drift * REMOTE_TICK_CORRECTION_RATE;
+        this.remoteRenderTick += remoteDrift * REMOTE_TICK_CORRECTION_RATE;
+      }
+      const targetLocal = roomState.tick + LOCAL_LOOKAHEAD_TICKS;
+      const localDrift = targetLocal - this.localRenderTick;
+      if (Math.abs(localDrift) > REMOTE_TICK_SNAP_THRESHOLD) {
+        this.localRenderTick = targetLocal;
+      } else {
+        this.localRenderTick += localDrift * REMOTE_TICK_CORRECTION_RATE;
       }
     }
 
@@ -914,35 +903,18 @@ export class Game {
       }
     }
 
+    // Unified path: all bikes apply server state to net buffer, then deadReckon
+    // at their respective render tick (local = extrapolating, remote = interpolating).
     const localSlot = this.config.localSlot ?? 0;
     for (let i = 0; i < this.bikes.length && i < roomState.bikes.length; i++) {
       const bike = this.bikes[i];
       const sb = roomState.bikes[i];
-
-      if (bike.playerIndex === localSlot && this.localSimBike) {
-        // LOCAL: 3D prediction via SimBike, reconcile on server tick
-        const FIXED_DT = 0.033;
-        this.predictionAccumulator += dt;
-        while (this.predictionAccumulator >= FIXED_DT) {
-          this.localSimBike.update(FIXED_DT, input, [this.localSimBike.trail], false);
-          this.predictionAccumulator -= FIXED_DT;
-        }
-        bike.syncFromSimPredicted(this.localSimBike, dt);
-        if (newTick) {
-          this.reconcileLocalBike(bike, this.localSimBike, netStateFromSchema(sb, roomState.tick));
-        }
-        // Trail: sync from server when it grows beyond local prediction
-        if (sb.trail.length > bike.trail.points.length) {
-          this.syncTrailFromServer(bike, sb);
-        }
-      } else {
-        // REMOTE: buffer states, interpolate with fractional render tick
-        if (newTick) {
-          bike.applyNetState(netStateFromSchema(sb, roomState.tick));
-          this.syncTrailFromServer(bike, sb);
-        }
-        bike.deadReckon(dt, this.remoteRenderTick);
+      if (newTick) {
+        bike.applyNetState(netStateFromSchema(sb, roomState.tick));
+        this.syncTrailFromServer(bike, sb);
       }
+      const renderTick = bike.playerIndex === localSlot ? this.localRenderTick : this.remoteRenderTick;
+      bike.deadReckon(dt, renderTick);
     }
 
     // Update power-up visuals (spawning/pickup handled via broadcast messages)
@@ -953,45 +925,6 @@ export class Game {
     this.minimap.update(this.bikes, this.powerUpManager.allPowerUps);
 
     this.updateTrailLiveHeads();
-  }
-
-  /** Reconcile local predicted SimBike with authoritative server state. */
-  private reconcileLocalBike(bike: Bike, simBike: SimBikeClass, serverState: ReturnType<typeof netStateFromSchema>): void {
-    // Death is always authoritative from server — check first
-    if (!serverState.alive && bike.alive) {
-      bike.applyNetState(serverState);
-      simBike.applyServerState(serverState);
-      return;
-    }
-
-    if (!serverState.alive) return;
-
-    // Position error between local prediction and server
-    const dx = serverState.x - simBike.position.x;
-    const dy = serverState.y - simBike.position.y;
-    const dz = serverState.z - simBike.position.z;
-    const error = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-    if (error > RENDER_OFFSET_SNAP_THRESHOLD) {
-      // Large disagreement: teleport (snap everything, zero offset)
-      simBike.applyServerState(serverState);
-      bike.renderOffset.set(0, 0, 0);
-      bike.renderAngleOffset = 0;
-    } else if (error > RENDER_OFFSET_MIN_CORRECTION) {
-      // Absorb correction into render offset so visual stays smooth
-      bike.renderOffset.x -= dx;
-      bike.renderOffset.y -= dy;
-      bike.renderOffset.z -= dz;
-      const angleDiff = wrapAngle(serverState.angle - simBike.angle);
-      bike.renderAngleOffset -= angleDiff;
-      simBike.applyServerState(serverState);
-    } else {
-      // Tiny error: just snap SimBike, no visual offset needed
-      simBike.applyServerState(serverState);
-    }
-
-    // Sync non-positional state to visual bike
-    bike.syncInvulnerabilityFromNet(serverState.invulnerable, serverState.invulnerableTimer);
   }
 
   /** Connect each trail's live head segment to its bike's current render position. */
