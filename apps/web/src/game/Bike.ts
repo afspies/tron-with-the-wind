@@ -4,7 +4,7 @@ import {
   BIKE_SPEED,
   JUMP_INITIAL_VY,
   BOOST_MULTIPLIER, BOOST_MAX,
-  NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
+  NET_TICK_DURATION_MS,
   DRIFT_SPEED_MULTIPLIER,
   wrapAngle,
 } from '@tron/shared';
@@ -71,14 +71,7 @@ export class Bike {
   private targetQuaternion = new THREE.Quaternion();
   private currentQuaternion = new THREE.Quaternion();
 
-  // Client-side prediction: local player's bike runs physics locally
-  isLocalPredicted = false;
-
-  // Render offset: after physics snaps to server, visual offset decays smoothly
-  renderOffset = new THREE.Vector3();
-  renderAngleOffset = 0;
-
-  // Rendered position/angle (includes render offset for predicted bikes)
+  // Rendered position/angle (interpolated/extrapolated from server state)
   visualPos: THREE.Vector3;
   visualAngle: number;
   private visualInitialized = false;
@@ -258,30 +251,6 @@ export class Bike {
     this.updateVisuals(dt);
     this.trail.syncFromSimTrail(simBike.trail.points);
     this.updateParticles(dt, this.position.x, this.position.y, this.position.z, this.angle);
-  }
-
-  /** Sync visual state from a local SimBike used for client prediction (online mode).
-   *  Decays render offsets for smooth reconciliation. */
-  syncFromSimPredicted(simBike: SimBike, dt: number): void {
-    if (this.handleDeathTransition(simBike, dt)) return;
-
-    this.copyPhysicsState(simBike);
-
-    // Decay render offset (smooth reconciliation)
-    const decay = Math.exp(-VISUAL_CORRECTION_RATE * dt);
-    this.renderOffset.multiplyScalar(decay);
-    this.renderAngleOffset *= decay;
-    if (this.renderOffset.lengthSq() < 0.0001) this.renderOffset.set(0, 0, 0);
-    if (Math.abs(this.renderAngleOffset) < 0.001) this.renderAngleOffset = 0;
-
-    this.visualPos.copy(this.position).add(this.renderOffset);
-    this.visualAngle = this.angle + this.renderAngleOffset;
-    this.visualInitialized = true;
-    this.mesh.position.copy(this.visualPos);
-
-    this.updateVisuals(dt);
-    this.trail.addPoint(simBike.position.x, simBike.position.y, simBike.position.z);
-    this.updateParticles(dt, this.visualPos.x, this.visualPos.y, this.visualPos.z, this.visualAngle);
   }
 
   setBodyColor(color: THREE.Color, emissiveIntensity: number): void {
@@ -579,8 +548,6 @@ export class Bike {
     this.targetQuaternion.setFromEuler(new THREE.Euler(0, angle + Math.PI, 0));
     this.currentQuaternion.copy(this.targetQuaternion);
     this.netBuffer = [];
-    this.renderOffset.set(0, 0, 0);
-    this.renderAngleOffset = 0;
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;
     this.visualInitialized = false;
