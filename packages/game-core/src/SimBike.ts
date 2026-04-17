@@ -19,6 +19,27 @@ import { createSimEffect } from './powerups/SimPowerUpRegistry';
 import { rotateVectorAroundAxis, projectOntoSurfacePlane } from './Surface';
 import { getArenaSurfaceInfo, getGravityTangent } from './ArenaSurface';
 
+/**
+ * Complete motion-state snapshot of a SimBike. Captures everything the physics
+ * step reads or writes so that `snapshot → run N inputs → restore snapshot →
+ * run same N inputs` yields bit-identical state. Does not capture the trail
+ * (treated separately) or the active powerup effect (server-authoritative).
+ */
+export interface BikeSnapshot {
+  x: number; y: number; z: number;
+  angle: number; speed: number;
+  vx: number; vy: number; vz: number;
+  forwardX: number; forwardY: number; forwardZ: number;
+  normalX: number; normalY: number; normalZ: number;
+  pitch: number; flying: boolean; grounded: boolean; onSurface: boolean;
+  surfaceType: SurfaceType;
+  drifting: boolean; velocityAngle: number; driftTimer: number;
+  alive: boolean;
+  boosting: boolean; boostMeter: number; boostRechargeTimer: number;
+  jumpCooldown: number;
+  doubleJumpReady: boolean; doubleJumpCooldown: number; usedDoubleJumpThisAirborne: boolean;
+}
+
 export class SimBike {
   position: Vec3;
   angle: number;
@@ -78,7 +99,7 @@ export class SimBike {
     this.trail = new SimTrail();
   }
 
-  update(dt: number, input: PlayerInput, allTrails: SimTrail[], skipCollision = false): void {
+  update(dt: number, input: PlayerInput, allTrails: SimTrail[], skipCollision = false, skipTrail = false): void {
     if (!this.alive) return;
 
     // Common: boost meter management
@@ -117,8 +138,11 @@ export class SimBike {
     this.angle = Math.atan2(this.forward.x, this.forward.z);
     this.velocityAngle = Math.atan2(this.vx, this.vz);
 
-    // Update trail
-    this.trail.addPoint(this.position.x, this.position.y, this.position.z);
+    // Update trail (skipped during client-side replay — the trail already contains
+    // the points from the forward pass that we're re-simulating).
+    if (!skipTrail) {
+      this.trail.addPoint(this.position.x, this.position.y, this.position.z);
+    }
   }
 
   // ─── Unified Surface Physics (floor, ramp, wall) ─────────────────────────
@@ -604,6 +628,42 @@ export class SimBike {
     } else if (state.invulnerable) {
       this.effectTimer = state.invulnerableTimer;
     }
+  }
+
+  /** Capture the full motion state for later restoration (used by client replay). */
+  snapshot(): BikeSnapshot {
+    return {
+      x: this.position.x, y: this.position.y, z: this.position.z,
+      angle: this.angle, speed: this.speed,
+      vx: this.vx, vy: this.vy, vz: this.vz,
+      forwardX: this.forward.x, forwardY: this.forward.y, forwardZ: this.forward.z,
+      normalX: this.surfaceNormal.x, normalY: this.surfaceNormal.y, normalZ: this.surfaceNormal.z,
+      pitch: this.pitch, flying: this.flying, grounded: this.grounded, onSurface: this.onSurface,
+      surfaceType: this.surfaceType,
+      drifting: this.drifting, velocityAngle: this.velocityAngle, driftTimer: this.driftTimer,
+      alive: this.alive,
+      boosting: this.boosting, boostMeter: this.boostMeter, boostRechargeTimer: this.boostRechargeTimer,
+      jumpCooldown: this.jumpCooldown,
+      doubleJumpReady: this.doubleJumpReady, doubleJumpCooldown: this.doubleJumpCooldown,
+      usedDoubleJumpThisAirborne: this.usedDoubleJumpThisAirborne,
+    };
+  }
+
+  /** Restore all motion state from a snapshot previously returned by `snapshot()`. */
+  restore(s: BikeSnapshot): void {
+    this.position.x = s.x; this.position.y = s.y; this.position.z = s.z;
+    this.angle = s.angle; this.speed = s.speed;
+    this.vx = s.vx; this.vy = s.vy; this.vz = s.vz;
+    this.forward = { x: s.forwardX, y: s.forwardY, z: s.forwardZ };
+    this.surfaceNormal = { x: s.normalX, y: s.normalY, z: s.normalZ };
+    this.pitch = s.pitch; this.flying = s.flying; this.grounded = s.grounded; this.onSurface = s.onSurface;
+    this.surfaceType = s.surfaceType;
+    this.drifting = s.drifting; this.velocityAngle = s.velocityAngle; this.driftTimer = s.driftTimer;
+    this.alive = s.alive;
+    this.boosting = s.boosting; this.boostMeter = s.boostMeter; this.boostRechargeTimer = s.boostRechargeTimer;
+    this.jumpCooldown = s.jumpCooldown;
+    this.doubleJumpReady = s.doubleJumpReady; this.doubleJumpCooldown = s.doubleJumpCooldown;
+    this.usedDoubleJumpThisAirborne = s.usedDoubleJumpThisAirborne;
   }
 
   reset(x: number, z: number, angle: number): void {

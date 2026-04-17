@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { SurfaceType } from '@tron/shared';
 import { Bike } from '../game/Bike';
 
 const CHASE_DISTANCE = 12;
@@ -139,7 +138,7 @@ export class GameCamera {
     const pos = target.renderPosition;
     const ang = target.renderAngle;
     const sn = target.surfaceNormal;
-    const isOnSurface = target.surfaceType !== SurfaceType.Air && target.grounded;
+    const isOnSurface = target.isOnSurfaceLike;
     const isNonFlat = isOnSurface && sn.y < 0.99;
 
     // Lerp camera up toward surface normal (use world up for air)

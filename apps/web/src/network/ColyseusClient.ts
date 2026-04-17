@@ -44,6 +44,11 @@ export class ColyseusClient {
   isHost = false;
   localSessionId = '';
 
+  // Monotonically increasing seq stamped onto every outbound PlayerInput.
+  // The server echoes the last-processed seq back on BikeSchema.lastInputSeq
+  // so the client can replay unacked inputs after a rewind.
+  private nextInputSeq = 1;
+
   // Callbacks
   onStateChange: (() => void) | null = null;
   onChatReceived: ((msg: ChatMessage) => void) | null = null;
@@ -112,8 +117,17 @@ export class ColyseusClient {
     this.isHost = state.hostSessionId === this.localSessionId;
   }
 
-  sendInput(input: PlayerInput): void {
+  /** Send a PlayerInput to the server, stamping it with a fresh sequence number. Returns the seq assigned. */
+  sendInput(input: PlayerInput): number {
+    const seq = this.nextInputSeq++;
+    input.inputSeq = seq;
     this.room?.send(ClientMsg.Input, input);
+    return seq;
+  }
+
+  /** Reset the input seq counter — call when starting a new round/match. */
+  resetInputSeq(): void {
+    this.nextInputSeq = 1;
   }
 
   sendChat(text: string): void {

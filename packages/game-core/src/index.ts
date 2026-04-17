@@ -1,4 +1,4 @@
-export { SimBike } from './SimBike';
+export { SimBike, type BikeSnapshot } from './SimBike';
 export {
   rotateVectorAroundAxis,
   projectOntoSurfacePlane,

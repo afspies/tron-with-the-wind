@@ -16,6 +16,18 @@ import type { PowerUpEffect } from './powerups/PowerUpEffect';
 import { createEffect } from './powerups/PowerUpRegistry';
 import { TrailParticles, DriftParticles, DeathParticles } from './BikeParticles';
 
+// Scratch allocations for computeBaseQuat — module-level so the hot path
+// (called each frame and during rewind) doesn't allocate.
+const _tmpUp = new THREE.Vector3();
+const _tmpFwd = new THREE.Vector3();
+const _tmpProj = new THREE.Vector3();
+const _tmpRight = new THREE.Vector3();
+const _tmpNegProj = new THREE.Vector3();
+const _tmpMat = new THREE.Matrix4();
+const _tmpEuler = new THREE.Euler();
+const _identityQuat = new THREE.Quaternion();
+const _deltaQuat = new THREE.Quaternion();
+
 export class Bike {
   mesh: THREE.Group;
   trail: Trail;
@@ -68,15 +80,25 @@ export class Bike {
   surfaceType: SurfaceType = SurfaceType.Floor;
   surfaceNormal: Vec3 = { x: 0, y: 1, z: 0 };
   forward: Vec3 = { x: 0, y: 0, z: 1 };
+
+  /** True when the bike is driving on any surface (floor, wall, ceiling); false in the air. */
+  get isOnSurfaceLike(): boolean {
+    return this.surfaceType !== SurfaceType.Air && this.grounded;
+  }
   private targetQuaternion = new THREE.Quaternion();
   private currentQuaternion = new THREE.Quaternion();
 
   // Client-side prediction: local player's bike runs physics locally
   isLocalPredicted = false;
 
-  // Render offset: after physics snaps to server, visual offset decays smoothly
+  // Render offset: after physics snaps to server, visual offset decays smoothly.
+  // Position offset is added to simBike position; quaternion offset is
+  // post-multiplied onto the base mesh quaternion. Both decay toward identity.
+  // `renderAngleOffset` is the scalar Y-yaw companion used by 2D consumers
+  // (camera, minimap, drift-lean); on walls it's a best-effort projection.
   renderOffset = new THREE.Vector3();
   renderAngleOffset = 0;
+  renderQuatOffset = new THREE.Quaternion();
 
   // Rendered position/angle (includes render offset for predicted bikes)
   visualPos: THREE.Vector3;
@@ -267,12 +289,16 @@ export class Bike {
 
     this.copyPhysicsState(simBike);
 
-    // Decay render offset (smooth reconciliation)
+    // Decay render offsets (smooth reconciliation). Quaternion offset slerps
+    // toward identity at the same rate the positional offset exponentially
+    // decays, so visual position and orientation converge in sync.
     const decay = Math.exp(-VISUAL_CORRECTION_RATE * dt);
     this.renderOffset.multiplyScalar(decay);
     this.renderAngleOffset *= decay;
     if (this.renderOffset.lengthSq() < 0.0001) this.renderOffset.set(0, 0, 0);
     if (Math.abs(this.renderAngleOffset) < 0.001) this.renderAngleOffset = 0;
+    _identityQuat.identity();
+    this.renderQuatOffset.slerp(_identityQuat, 1 - decay);
 
     this.visualPos.copy(this.position).add(this.renderOffset);
     this.visualAngle = this.angle + this.renderAngleOffset;
@@ -282,6 +308,54 @@ export class Bike {
     this.updateVisuals(dt);
     this.trail.addPoint(simBike.position.x, simBike.position.y, simBike.position.z);
     this.updateParticles(dt, this.visualPos.x, this.visualPos.y, this.visualPos.z, this.visualAngle);
+  }
+
+  /**
+   * Absorb a reconciliation delta so the visual position/orientation stays
+   * continuous across a physics rewind. Caller provides the pre-rewind and
+   * post-rewind physics snapshots (position and base orientation quaternion);
+   * this method updates the visual offsets so `basePos + renderOffset` and
+   * `baseQuat * renderQuatOffset` evaluate identically before and after.
+   * If the position delta exceeds the snap threshold, offsets are cleared
+   * instead (hard teleport — expected only on respawn/first-tick/major stalls).
+   */
+  absorbReconcileDelta(
+    preRewindPos: THREE.Vector3,
+    preRewindBaseQuat: THREE.Quaternion,
+    preRewindAngle: number,
+    postRewindPos: THREE.Vector3,
+    postRewindBaseQuat: THREE.Quaternion,
+    postRewindAngle: number,
+    snapThreshold: number,
+  ): { snapped: boolean; errorMag: number } {
+    const dx = preRewindPos.x - postRewindPos.x;
+    const dy = preRewindPos.y - postRewindPos.y;
+    const dz = preRewindPos.z - postRewindPos.z;
+    const errorMag = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (errorMag > snapThreshold) {
+      this.renderOffset.set(0, 0, 0);
+      this.renderAngleOffset = 0;
+      this.renderQuatOffset.identity();
+      return { snapped: true, errorMag };
+    }
+
+    // Position: add the physics delta so (postRewindPos + newOffset) equals
+    // the pre-rewind visual world position.
+    this.renderOffset.x += dx;
+    this.renderOffset.y += dy;
+    this.renderOffset.z += dz;
+
+    // Scalar yaw companion for 2D consumers (camera, minimap).
+    const angleDiff = wrapAngle(preRewindAngle - postRewindAngle);
+    this.renderAngleOffset += angleDiff;
+
+    // Orientation: newOffset = postBase.inv() * preBase * oldOffset so that
+    // postBase * newOffset == preBase * oldOffset (visual quat unchanged).
+    _deltaQuat.copy(postRewindBaseQuat).invert().multiply(preRewindBaseQuat);
+    this.renderQuatOffset.premultiply(_deltaQuat);
+
+    return { snapped: false, errorMag };
   }
 
   setBodyColor(color: THREE.Color, emissiveIntensity: number): void {
@@ -320,6 +394,40 @@ export class Bike {
     }
   }
 
+  /**
+   * Compute the "base" mesh quaternion for given surface + heading state.
+   * Used both for rendering the local mesh and for computing the visual
+   * orientation delta across a client-prediction rewind in Game.ts.
+   */
+  static computeBaseQuat(
+    forward: Vec3,
+    surfaceNormal: Vec3,
+    angle: number,
+    isOnSurface: boolean,
+    out?: THREE.Quaternion,
+  ): THREE.Quaternion {
+    const q = out ?? new THREE.Quaternion();
+    if (isOnSurface) {
+      const up = _tmpUp.set(surfaceNormal.x, surfaceNormal.y, surfaceNormal.z);
+      const rawFwd = _tmpFwd.set(forward.x, forward.y, forward.z);
+      const projected = _tmpProj.copy(rawFwd).addScaledVector(up, -rawFwd.dot(up));
+      if (projected.lengthSq() < 0.001) {
+        projected.set(Math.sin(angle), 0, Math.cos(angle));
+        projected.addScaledVector(up, -projected.dot(up));
+        if (projected.lengthSq() < 0.001) projected.set(1, 0, 0);
+      }
+      projected.normalize();
+      const right = _tmpRight.crossVectors(projected, up).normalize();
+      const neg = _tmpNegProj.copy(projected).negate();
+      _tmpMat.makeBasis(right, up, neg);
+      q.setFromRotationMatrix(_tmpMat);
+    } else {
+      _tmpEuler.set(0, angle + Math.PI, 0);
+      q.setFromEuler(_tmpEuler);
+    }
+    return q;
+  }
+
   /** Compute mesh orientation from surface state using continuous surface normal. */
   private updateMeshOrientation(dt: number): void {
     // Always recompute surfaceNormal from physics position (works for both floor and walls)
@@ -330,31 +438,11 @@ export class Bike {
 
     const isOnSurface = this.surfaceType !== SurfaceType.Air && this.grounded;
 
-    if (isOnSurface) {
-      // Build rotation from forward projected onto surface plane + surface normal
-      const up = new THREE.Vector3(this.surfaceNormal.x, this.surfaceNormal.y, this.surfaceNormal.z);
-
-      // Project forward onto the surface plane (remove normal component)
-      const rawFwd = new THREE.Vector3(this.forward.x, this.forward.y, this.forward.z);
-      const dot = rawFwd.dot(up);
-      const projected = rawFwd.clone().addScaledVector(up, -dot);
-
-      if (projected.lengthSq() < 0.001) {
-        // Forward nearly parallel to normal — use angle-based fallback
-        projected.set(Math.sin(this.visualAngle), 0, Math.cos(this.visualAngle));
-        projected.addScaledVector(up, -projected.dot(up)).normalize();
-      } else {
-        projected.normalize();
-      }
-
-      const right = new THREE.Vector3().crossVectors(projected, up).normalize();
-      const mat = new THREE.Matrix4().makeBasis(right, up, projected.clone().negate());
-      this.targetQuaternion.setFromRotationMatrix(mat);
-    } else {
-      // Air: use euler rotation (angle around Y)
-      // Add PI to match the surface basis convention (model's -Z = forward)
-      this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.visualAngle + Math.PI, 0));
-    }
+    // Base orientation from physics state, then compose the visual offset
+    // quaternion on the right so the offset decays toward identity without
+    // fighting the base rotation.
+    Bike.computeBaseQuat(this.forward, this.surfaceNormal, this.visualAngle, isOnSurface, this.targetQuaternion);
+    this.targetQuaternion.multiply(this.renderQuatOffset);
 
     this.currentQuaternion.slerp(this.targetQuaternion, 1 - Math.exp(-10 * dt));
     this.mesh.quaternion.copy(this.currentQuaternion);
@@ -508,14 +596,15 @@ export class Bike {
       if (t >= 0 && t <= 1.0) {
         this.lerpBufferEntries(a, b, t);
       } else if (renderTick > b.tick) {
-        // Extrapolation: cap at 1 tick to avoid overshooting turns
+        // Extrapolation: cap at 1 tick to avoid overshooting turns. Use the
+        // buffered 3D forward vector so wall-driving extrapolation moves
+        // along the wall surface instead of the world XZ plane.
         this.snapToBufferEntry(b);
         const cappedSec = Math.min((renderTick - b.tick) * (NET_TICK_DURATION_MS / 1000), NET_TICK_DURATION_MS / 1000);
         const speed = this.effectiveSpeed;
-        const cosPitch = b.flying ? Math.cos(b.pitch) : 1;
-        const extraAngle = this.drifting ? this.velocityAngle : b.angle;
-        this.position.x = b.x + Math.sin(extraAngle) * speed * cosPitch * cappedSec;
-        this.position.z = b.z + Math.cos(extraAngle) * speed * cosPitch * cappedSec;
+        this.position.x = b.x + b.forwardX * speed * cappedSec;
+        this.position.y = b.y + b.forwardY * speed * cappedSec;
+        this.position.z = b.z + b.forwardZ * speed * cappedSec;
       } else {
         this.snapToBufferEntry(a);
       }
@@ -581,6 +670,7 @@ export class Bike {
     this.netBuffer = [];
     this.renderOffset.set(0, 0, 0);
     this.renderAngleOffset = 0;
+    this.renderQuatOffset.identity();
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;
     this.visualInitialized = false;

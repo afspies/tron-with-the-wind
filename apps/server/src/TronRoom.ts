@@ -1,12 +1,18 @@
 import { Room, Client } from 'colyseus';
 import { Simulation } from '@tron/game-core';
-import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, ClientMsg, ServerMsg } from '@tron/shared';
+import {
+  COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS,
+  FIXED_SIM_DT_SEC, MAX_SIM_STEPS_PER_FRAME,
+  ClientMsg, ServerMsg,
+} from '@tron/shared';
 import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import {
   TronState, PlayerSchema, BikeSchema, TrailPointSchema, PowerUpSchema,
 } from './schema/TronState';
 
-const SIM_INTERVAL_MS = 33;   // 30 Hz physics
+// Outer wall-clock interval; the game loop runs a fixed-dt accumulator
+// inside and may execute 0..MAX_SIM_STEPS_PER_FRAME physics steps per firing.
+const TICK_CALLBACK_MS = 16;
 
 export class TronRoom extends Room<TronState> {
   maxClients = MAX_PLAYERS;
@@ -14,7 +20,9 @@ export class TronRoom extends Room<TronState> {
 
   private simulation: Simulation | null = null;
   private playerInputs = new Map<string, PlayerInput>();
+  private lastInputSeqBySession = new Map<string, number>();
   private sessionToSlot = new Map<string, number>();
+  private simAccumulatorSec = 0;
 
   onCreate(_options: { roomCode?: string }): void {
     this.setState(new TronState());
@@ -31,6 +39,13 @@ export class TronRoom extends Room<TronState> {
         pitchUp: !!data.pitchUp,
         pitchDown: !!data.pitchDown,
       });
+      const seq = (data as { inputSeq?: number }).inputSeq;
+      if (typeof seq === 'number' && seq >= 0) {
+        // Keep the max across messages in case of reorder (WS is ordered but
+        // defensive anyway; monotonic input is assumed).
+        const prev = this.lastInputSeqBySession.get(client.sessionId) ?? 0;
+        if (seq > prev) this.lastInputSeqBySession.set(client.sessionId, seq);
+      }
     });
 
     this.onMessage(ClientMsg.Chat, (client, data: { text: string }) => {
@@ -99,6 +114,7 @@ export class TronRoom extends Room<TronState> {
     this.state.players.delete(client.sessionId);
     this.sessionToSlot.delete(client.sessionId);
     this.playerInputs.delete(client.sessionId);
+    this.lastInputSeqBySession.delete(client.sessionId);
 
     // Kill bike if playing
     if (this.simulation && slot != null) {
@@ -150,11 +166,14 @@ export class TronRoom extends Room<TronState> {
 
     this.state.tick = 0;
     this.playerInputs.clear();
+    this.lastInputSeqBySession.clear();
+    this.simAccumulatorSec = 0;
 
     this.startRound();
 
-    // Start simulation loop
-    this.setSimulationInterval((dt) => this.gameLoop(dt), SIM_INTERVAL_MS);
+    // Start simulation loop — outer wall-clock at TICK_CALLBACK_MS,
+    // inner fixed-dt physics stepping via the accumulator in gameLoop.
+    this.setSimulationInterval((dt) => this.gameLoop(dt), TICK_CALLBACK_MS);
   }
 
   private startRound(): void {
@@ -182,61 +201,88 @@ export class TronRoom extends Room<TronState> {
         this.state.countdownTimer -= dtSec;
         if (this.state.countdownTimer <= -0.5) {
           this.state.phase = 'playing';
+          this.simAccumulatorSec = 0;
         }
         break;
       }
 
       case 'playing': {
-        // Build input map (slot → PlayerInput)
-        const inputs = new Map<number, PlayerInput>();
-        for (const [sessionId, input] of this.playerInputs) {
-          const slot = this.sessionToSlot.get(sessionId);
-          if (slot != null) {
-            inputs.set(slot, input);
-          }
+        // Fixed-dt accumulator — run 0..MAX_SIM_STEPS_PER_FRAME physics steps
+        // per wall-clock callback. Identical stepping on client and server
+        // keeps deterministic replay aligned and removes the per-tick drift
+        // that variable-dt stepping causes.
+        this.simAccumulatorSec += dtSec;
+        let steps = 0;
+        while (this.simAccumulatorSec >= FIXED_SIM_DT_SEC && steps < MAX_SIM_STEPS_PER_FRAME) {
+          this.simAccumulatorSec -= FIXED_SIM_DT_SEC;
+          steps++;
+          this.stepSimulation();
+          if (this.state.phase !== 'playing') break;
         }
-
-        const result = this.simulation.tick(dtSec, inputs);
-        this.state.tick++;
-
-        // Sync simulation state to schema
-        this.syncBikesToSchema();
-        this.syncTrailsToSchema();
-
-        // Handle powerup events
-        for (const event of result.powerUpEvents) {
-          if (event.type === 'powerup-spawn' || event.type === 'powerup-pickup') {
-            this.broadcast(ServerMsg.PowerUpEffect, event);
-          }
-        }
-        this.syncPowerUpsToSchema();
-
-        // Check round end
-        if (result.roundEnded) {
-          this.syncScores();
-          this.state.phase = 'roundEnd';
-
-          const gameWinner = this.simulation.round.getWinner(this.state.roundsToWin);
-          if (gameWinner >= 0) {
-            this.clock.setTimeout(() => {
-              this.state.phase = 'gameOver';
-            }, 1500);
-          } else {
-            this.clock.setTimeout(() => {
-              this.startRound();
-            }, 3000);
-          }
+        // Cap accumulator so a long stall doesn't unleash a tick flood.
+        if (this.simAccumulatorSec > FIXED_SIM_DT_SEC * MAX_SIM_STEPS_PER_FRAME) {
+          this.simAccumulatorSec = FIXED_SIM_DT_SEC * MAX_SIM_STEPS_PER_FRAME;
         }
         break;
       }
     }
   }
 
+  /** Run one fixed-dt physics step and sync its output into the schema. */
+  private stepSimulation(): void {
+    if (!this.simulation) return;
+
+    // Build input map (slot → PlayerInput)
+    const inputs = new Map<number, PlayerInput>();
+    for (const [sessionId, input] of this.playerInputs) {
+      const slot = this.sessionToSlot.get(sessionId);
+      if (slot != null) {
+        inputs.set(slot, input);
+      }
+    }
+
+    const result = this.simulation.tick(FIXED_SIM_DT_SEC, inputs);
+    this.state.tick++;
+
+    this.syncBikesToSchema();
+    this.syncTrailsToSchema();
+
+    for (const event of result.powerUpEvents) {
+      if (event.type === 'powerup-spawn' || event.type === 'powerup-pickup') {
+        this.broadcast(ServerMsg.PowerUpEffect, event);
+      }
+    }
+    this.syncPowerUpsToSchema();
+
+    if (result.roundEnded) {
+      this.syncScores();
+      this.state.phase = 'roundEnd';
+
+      const gameWinner = this.simulation.round.getWinner(this.state.roundsToWin);
+      if (gameWinner >= 0) {
+        this.clock.setTimeout(() => {
+          this.state.phase = 'gameOver';
+        }, 1500);
+      } else {
+        this.clock.setTimeout(() => {
+          this.startRound();
+        }, 3000);
+      }
+    }
+  }
+
   private syncBikesToSchema(): void {
     if (!this.simulation) return;
+    // Invert sessionToSlot so we can write each session's lastInputSeq onto its bike.
+    const seqBySlot = new Map<number, number>();
+    for (const [sessionId, seq] of this.lastInputSeqBySession) {
+      const slot = this.sessionToSlot.get(sessionId);
+      if (slot != null) seqBySlot.set(slot, seq);
+    }
     for (let i = 0; i < this.simulation.bikes.length && i < this.state.bikes.length; i++) {
       const sim = this.simulation.bikes[i];
       const bike = this.state.bikes[i]!;
+      bike.lastInputSeq = seqBySlot.get(sim.playerIndex) ?? 0;
       bike.x = sim.position.x;
       bike.y = sim.position.y;
       bike.z = sim.position.z;

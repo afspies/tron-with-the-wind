@@ -43,11 +43,14 @@ export const BOOST_RECHARGE = 0.6;   // base recharge rate per second (non-linea
 export const COUNTDOWN_DURATION = 3;
 
 export const NET_TICK_DURATION_MS = 1000 / 30; // ~33.33ms per tick
+export const FIXED_SIM_DT_SEC = NET_TICK_DURATION_MS / 1000; // fixed-step physics dt on both sides
+export const MAX_SIM_STEPS_PER_FRAME = 4; // catch-up cap to avoid spiral-of-death
 
 // Local predicted bike: snap physics to server, decay render offset smoothly
 export const VISUAL_CORRECTION_RATE = 18; // exponential decay speed for render offset
 export const RENDER_OFFSET_SNAP_THRESHOLD = 10; // error above which we teleport (zero offset)
 export const RENDER_OFFSET_MIN_CORRECTION = 0.01; // error below which we skip correction
+export const INPUT_HISTORY_MAX = 120; // ring buffer size for client-side input replay (~4 s at 30 Hz)
 
 // Remote bikes: fractional render tick interpolation
 export const REMOTE_TICK_CORRECTION_RATE = 0.1; // drift correction blend per server tick

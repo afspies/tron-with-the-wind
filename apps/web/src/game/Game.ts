@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import type { GameConfig, GameState, PlayerInput } from '@tron/shared';
-import { PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION, NET_TICK_DURATION_MS, REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD, RENDER_OFFSET_SNAP_THRESHOLD, RENDER_OFFSET_MIN_CORRECTION, wrapAngle } from '@tron/shared';
+import {
+  PLAYER_COLORS, PLAYER_NAMES, COUNTDOWN_DURATION,
+  NET_TICK_DURATION_MS, FIXED_SIM_DT_SEC, INPUT_HISTORY_MAX,
+  REMOTE_TICK_CORRECTION_RATE, REMOTE_TICK_SNAP_THRESHOLD,
+  RENDER_OFFSET_SNAP_THRESHOLD,
+  wrapAngle,
+} from '@tron/shared';
 import { Simulation, SimBike as SimBikeClass, SimTrail } from '@tron/game-core';
 import { createSceneContext, SceneContext } from '../scene/SceneSetup';
 import { GameCamera } from '../scene/Camera';
@@ -24,6 +30,13 @@ import { PowerUpManager } from './PowerUpManager';
 import { TutorialManager } from '../ui/Tutorial';
 import { Stadium } from './Stadium';
 import { Crowd } from './Crowd';
+import { NetDebugOverlay } from './NetDebugOverlay';
+
+// Scratch allocations for the reconciler hot path.
+const _preRewindPos = new THREE.Vector3();
+const _postRewindPos = new THREE.Vector3();
+const _preRewindQuat = new THREE.Quaternion();
+const _postRewindQuat = new THREE.Quaternion();
 
 /** Build a net state snapshot from a Colyseus schema bike + room tick. */
 function netStateFromSchema(sb: any, tick: number) {
@@ -65,6 +78,28 @@ export class Game {
   private localSimBike: SimBikeClass | null = null;
   private predictionAccumulator: number = 0;
 
+  // Valve-style input replay: ring buffer of every input sent, keyed by seq.
+  // On each new server tick that acks a new inputSeq, we rewind the predicted
+  // bike to the server snapshot, drop acked inputs, and replay the rest.
+  private inputHistory: Array<{ seq: number; input: PlayerInput; sendTimeMs: number }> = [];
+  private lastAckedInputSeq: number = 0;
+
+  /** Telemetry bag consumed by the dev NetDebugOverlay. Reset every new tick. */
+  netStats = {
+    frameDtMs: 0,
+    serverTickDtMs: 0,
+    lastServerTickAtMs: 0,
+    rttMs: 0,
+    reconcileErrorM: 0,
+    reconcileSnaps: 0,
+    reconcileApplies: 0,
+    renderOffsetMag: 0,
+    inputHistoryLen: 0,
+    replaySteps: 0,
+    localTick: 0,
+    serverTick: 0,
+  };
+
   // Network (Colyseus)
   private colyseus: ColyseusClient;
   private lobby: Lobby;
@@ -94,6 +129,9 @@ export class Game {
 
   // Player names (indexed by bike order)
   private names: string[] = [];
+
+  // Dev-only net debug HUD (toggle with backtick)
+  private netDebug = new NetDebugOverlay();
 
   constructor() {
     this.gameCamera = new GameCamera();
@@ -338,6 +376,9 @@ export class Game {
     this.cleanupBikes();
     this.lastServerTick = 0;
     this.remoteRenderTick = 0;
+    this.inputHistory.length = 0;
+    this.lastAckedInputSeq = 0;
+    this.colyseus.resetInputSeq();
 
     const localSlot = this.colyseus.getLocalSlot();
     const totalPlayers = serverState.bikes.length;
@@ -400,6 +441,9 @@ export class Game {
     this.powerUpManager.reset();
     this.scoreboard.hideAll();
     this.remoteRenderTick = 0;
+    this.inputHistory.length = 0;
+    this.lastAckedInputSeq = 0;
+    this.colyseus.resetInputSeq();
 
     // Reset bikes from server positions
     for (let i = 0; i < this.bikes.length && i < serverState.bikes.length; i++) {
@@ -810,6 +854,7 @@ export class Game {
 
     // Always update camera and render
     this.gameCamera.update(dt, this.bikes);
+    this.netDebug.update(this.netStats);
 
     // Hide local player's trail near the bike in first-person mode
     const fpBlend = this.gameCamera.fpBlendValue;
@@ -882,16 +927,33 @@ export class Game {
   // --- Online Update ---
 
   private updatePlayingOnline(dt: number): void {
-    // Send local player input to server
+    this.netStats.frameDtMs = dt * 1000;
+
+    // Sample input and ship it to the server. Record in the ring buffer so
+    // the Valve-style reconciler can replay any inputs the server hasn't
+    // acknowledged yet after we rewind to the authoritative snapshot.
     const input = this.input.getInput(0);
-    this.colyseus.sendInput(input);
+    const seq = this.colyseus.sendInput(input);
+    this.inputHistory.push({ seq, input: { ...input }, sendTimeMs: performance.now() });
+    if (this.inputHistory.length > INPUT_HISTORY_MAX) {
+      this.inputHistory.splice(0, this.inputHistory.length - INPUT_HISTORY_MAX);
+    }
 
     // Read server state
     const roomState = this.colyseus.room?.state as any;
     if (!roomState) return;
 
     const newTick = roomState.tick !== this.lastServerTick;
-    if (newTick) this.lastServerTick = roomState.tick;
+    if (newTick) {
+      const nowMs = performance.now();
+      if (this.netStats.lastServerTickAtMs > 0) {
+        this.netStats.serverTickDtMs = nowMs - this.netStats.lastServerTickAtMs;
+      }
+      this.netStats.lastServerTickAtMs = nowMs;
+      this.netStats.serverTick = roomState.tick;
+      this.lastServerTick = roomState.tick;
+    }
+    this.netStats.inputHistoryLen = this.inputHistory.length;
 
     // Advance fractional render tick at frame rate, targeting one tick behind
     // the server so interpolation always has data ahead of the render point.
@@ -920,16 +982,16 @@ export class Game {
       const sb = roomState.bikes[i];
 
       if (bike.playerIndex === localSlot && this.localSimBike) {
-        // LOCAL: 3D prediction via SimBike, reconcile on server tick
-        const FIXED_DT = 0.033;
+        // LOCAL: client-side prediction with fixed-dt stepping — matches the
+        // server's fixed-dt loop so deterministic replay is valid.
         this.predictionAccumulator += dt;
-        while (this.predictionAccumulator >= FIXED_DT) {
-          this.localSimBike.update(FIXED_DT, input, [this.localSimBike.trail], false);
-          this.predictionAccumulator -= FIXED_DT;
+        while (this.predictionAccumulator >= FIXED_SIM_DT_SEC) {
+          this.localSimBike.update(FIXED_SIM_DT_SEC, input, [this.localSimBike.trail], false);
+          this.predictionAccumulator -= FIXED_SIM_DT_SEC;
         }
         bike.syncFromSimPredicted(this.localSimBike, dt);
         if (newTick) {
-          this.reconcileLocalBike(bike, this.localSimBike, netStateFromSchema(sb, roomState.tick));
+          this.reconcileLocalBike(bike, this.localSimBike, sb, netStateFromSchema(sb, roomState.tick));
         }
         // Trail: sync from server when it grows beyond local prediction
         if (sb.trail.length > bike.trail.points.length) {
@@ -955,40 +1017,89 @@ export class Game {
     this.updateTrailLiveHeads();
   }
 
-  /** Reconcile local predicted SimBike with authoritative server state. */
-  private reconcileLocalBike(bike: Bike, simBike: SimBikeClass, serverState: ReturnType<typeof netStateFromSchema>): void {
+  /**
+   * Reconcile the local predicted SimBike with the authoritative server
+   * snapshot via Valve-style rewind + replay:
+   *   1. Capture pre-rewind visual frame (pos + base orientation quat).
+   *   2. Apply server state to SimBike (rewind).
+   *   3. Drop acked inputs from the ring buffer.
+   *   4. Replay unacked inputs at FIXED_SIM_DT_SEC each (skipCollision + skipTrail).
+   *   5. Compute post-rewind frame and absorb the delta into the visual
+   *      offsets so the rendered bike does not jump.
+   */
+  private reconcileLocalBike(
+    bike: Bike,
+    simBike: SimBikeClass,
+    schemaBike: any,
+    serverState: ReturnType<typeof netStateFromSchema>,
+  ): void {
     // Death is always authoritative from server — check first
     if (!serverState.alive && bike.alive) {
       bike.applyNetState(serverState);
       simBike.applyServerState(serverState);
+      bike.renderOffset.set(0, 0, 0);
+      bike.renderAngleOffset = 0;
+      bike.renderQuatOffset.identity();
       return;
     }
 
     if (!serverState.alive) return;
 
-    // Position error between local prediction and server
-    const dx = serverState.x - simBike.position.x;
-    const dy = serverState.y - simBike.position.y;
-    const dz = serverState.z - simBike.position.z;
-    const error = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    // 1. Pre-rewind snapshot (physics-space — before we apply the server state).
+    _preRewindPos.set(simBike.position.x, simBike.position.y, simBike.position.z);
+    const preIsOnSurface = simBike.onSurface;
+    const preAngle = simBike.angle;
+    Bike.computeBaseQuat(simBike.forward, simBike.surfaceNormal, simBike.angle, preIsOnSurface, _preRewindQuat);
 
-    if (error > RENDER_OFFSET_SNAP_THRESHOLD) {
-      // Large disagreement: teleport (snap everything, zero offset)
-      simBike.applyServerState(serverState);
-      bike.renderOffset.set(0, 0, 0);
-      bike.renderAngleOffset = 0;
-    } else if (error > RENDER_OFFSET_MIN_CORRECTION) {
-      // Absorb correction into render offset so visual stays smooth
-      bike.renderOffset.x -= dx;
-      bike.renderOffset.y -= dy;
-      bike.renderOffset.z -= dz;
-      const angleDiff = wrapAngle(serverState.angle - simBike.angle);
-      bike.renderAngleOffset -= angleDiff;
-      simBike.applyServerState(serverState);
-    } else {
-      // Tiny error: just snap SimBike, no visual offset needed
-      simBike.applyServerState(serverState);
+    // Update RTT estimate if the server has acked an input we remember.
+    const ackedSeq = (schemaBike.lastInputSeq ?? 0) as number;
+    if (ackedSeq > 0) {
+      const match = this.inputHistory.find((h) => h.seq === ackedSeq);
+      if (match) this.netStats.rttMs = performance.now() - match.sendTimeMs;
     }
+
+    // 2. Rewind to server authoritative state.
+    simBike.applyServerState(serverState);
+
+    // 3. Drop inputs the server has already processed.
+    if (ackedSeq > this.lastAckedInputSeq) {
+      this.lastAckedInputSeq = ackedSeq;
+    }
+    if (this.lastAckedInputSeq > 0) {
+      const drop = this.inputHistory.findIndex((h) => h.seq > this.lastAckedInputSeq);
+      if (drop < 0) {
+        this.inputHistory.length = 0;
+      } else if (drop > 0) {
+        this.inputHistory.splice(0, drop);
+      }
+    }
+
+    // 4. Replay unacked inputs. skipCollision=true (server is authoritative on
+    // death) and skipTrail=true (the trail already contains the points added
+    // during the forward pass we are re-simulating).
+    let replayed = 0;
+    for (const h of this.inputHistory) {
+      if (!simBike.alive) break;
+      simBike.update(FIXED_SIM_DT_SEC, h.input, [simBike.trail], true, true);
+      replayed++;
+    }
+    this.netStats.replaySteps = replayed;
+
+    // 5. Post-rewind frame and delta absorption.
+    _postRewindPos.set(simBike.position.x, simBike.position.y, simBike.position.z);
+    const postIsOnSurface = simBike.onSurface;
+    const postAngle = simBike.angle;
+    Bike.computeBaseQuat(simBike.forward, simBike.surfaceNormal, simBike.angle, postIsOnSurface, _postRewindQuat);
+
+    const result = bike.absorbReconcileDelta(
+      _preRewindPos, _preRewindQuat, preAngle,
+      _postRewindPos, _postRewindQuat, postAngle,
+      RENDER_OFFSET_SNAP_THRESHOLD,
+    );
+    this.netStats.reconcileErrorM = result.errorMag;
+    this.netStats.renderOffsetMag = bike.renderOffset.length();
+    if (result.snapped) this.netStats.reconcileSnaps++;
+    else this.netStats.reconcileApplies++;
 
     // Sync non-positional state to visual bike
     bike.syncInvulnerabilityFromNet(serverState.invulnerable, serverState.invulnerableTimer);
