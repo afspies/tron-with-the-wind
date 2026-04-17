@@ -38,6 +38,12 @@ export interface PlayerInput {
   drift: boolean;
   pitchUp: boolean;
   pitchDown: boolean;
+  /**
+   * Client-assigned monotonic sequence number. The server echoes back the
+   * last-processed seq on `BikeSchema.lastInputSeq` so the client can replay
+   * still-unacked inputs after a rewind. Optional — AI/offline callers omit it.
+   */
+  inputSeq?: number;
 }
 
 export const NO_INPUT: PlayerInput = { left: false, right: false, jump: false, boost: false, drift: false, pitchUp: false, pitchDown: false };
