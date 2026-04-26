@@ -10,5 +10,5 @@ export enum ClientMsg {
 /** Messages sent from server to client (beyond schema auto-sync) */
 export enum ServerMsg {
   Chat = 'chat',
-  PowerUpEffect = 'powerupEffect',
+  GameSnapshot = 'gameSnapshot',
 }

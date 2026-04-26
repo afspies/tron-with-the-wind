@@ -4,11 +4,10 @@ import {
   BIKE_SPEED,
   JUMP_INITIAL_VY,
   BOOST_MULTIPLIER, BOOST_MAX,
-  NET_TICK_DURATION_MS, VISUAL_CORRECTION_RATE,
   DRIFT_SPEED_MULTIPLIER,
   wrapAngle,
 } from '@tron/shared';
-import type { Vec3 } from '@tron/shared';
+import type { BikeSnapshot, Vec3 } from '@tron/shared';
 import type { SimBike } from '@tron/game-core';
 import { getArenaSurfaceInfo } from '@tron/game-core';
 import { Trail } from './Trail';
@@ -71,19 +70,11 @@ export class Bike {
   private targetQuaternion = new THREE.Quaternion();
   private currentQuaternion = new THREE.Quaternion();
 
-  // Client-side prediction: local player's bike runs physics locally
-  isLocalPredicted = false;
-
-  // Render offset: after physics snaps to server, visual offset decays smoothly
-  renderOffset = new THREE.Vector3();
-  renderAngleOffset = 0;
-
-  // Rendered position/angle (includes render offset for predicted bikes)
+  // Rendered position/angle
   visualPos: THREE.Vector3;
   visualAngle: number;
   private visualInitialized = false;
 
-  private netBuffer: Array<{ x: number; z: number; y: number; angle: number; vy: number; grounded: boolean; pitch: number; flying: boolean; surfaceType: SurfaceType; forwardX: number; forwardY: number; forwardZ: number; tick: number; time: number }> = [];
   private bodyMesh: THREE.Mesh;
   private bikeLight: THREE.PointLight;
   private scene: THREE.Scene;
@@ -260,27 +251,50 @@ export class Bike {
     this.updateParticles(dt, this.position.x, this.position.y, this.position.z, this.angle);
   }
 
-  /** Sync visual state from a local SimBike used for client prediction (online mode).
-   *  Decays render offsets for smooth reconciliation. */
-  syncFromSimPredicted(simBike: SimBike, dt: number): void {
-    if (this.handleDeathTransition(simBike, dt)) return;
+  /** Apply an interpolated authoritative network render state. */
+  applyRenderState(state: BikeSnapshot, dt: number): void {
+    if (!state.alive) {
+      if (this.alive) {
+        this.alive = false;
+        this.mesh.visible = false;
+        this.expireActiveEffect();
+        this.deathParticles = new DeathParticles(this.color, state.x, state.y, state.z, this.scene);
+      }
+      this.deathParticles?.update(dt);
+      return;
+    }
 
-    this.copyPhysicsState(simBike);
+    if (!this.alive) {
+      this.deathParticles?.update(dt);
+      return;
+    }
 
-    // Decay render offset (smooth reconciliation)
-    const decay = Math.exp(-VISUAL_CORRECTION_RATE * dt);
-    this.renderOffset.multiplyScalar(decay);
-    this.renderAngleOffset *= decay;
-    if (this.renderOffset.lengthSq() < 0.0001) this.renderOffset.set(0, 0, 0);
-    if (Math.abs(this.renderAngleOffset) < 0.001) this.renderAngleOffset = 0;
+    this.position.set(state.x, state.y, state.z);
+    this.angle = state.angle;
+    this.vy = state.vy;
+    this.grounded = state.grounded;
+    this.boostMeter = state.boostMeter;
+    this.boosting = state.boosting;
+    this.doubleJumpCooldown = state.doubleJumpCooldown;
+    this.doubleJumpReady = state.doubleJumpCooldown <= 0;
+    this.drifting = state.drifting;
+    this.velocityAngle = state.velocityAngle;
+    this.vx = state.vx;
+    this.vz = state.vz;
+    this.pitch = state.pitch;
+    this.flying = state.flying;
+    this.surfaceType = state.surfaceType;
+    this.forward = { x: state.forwardX, y: state.forwardY, z: state.forwardZ };
 
-    this.visualPos.copy(this.position).add(this.renderOffset);
-    this.visualAngle = this.angle + this.renderAngleOffset;
+    this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer);
+
+    this.visualPos.copy(this.position);
+    this.visualAngle = this.angle;
     this.visualInitialized = true;
+    this.mesh.visible = true;
     this.mesh.position.copy(this.visualPos);
 
     this.updateVisuals(dt);
-    this.trail.addPoint(simBike.position.x, simBike.position.y, simBike.position.z);
     this.updateParticles(dt, this.visualPos.x, this.visualPos.y, this.visualPos.z, this.visualAngle);
   }
 
@@ -370,79 +384,10 @@ export class Bike {
     }
   }
 
-  /** Sync optional drift fields from a net state snapshot. */
-  private syncDriftFromNetState(state: { drifting?: boolean; velocityAngle?: number }): void {
-    if (state.drifting !== undefined) {
-      this.drifting = state.drifting;
-    }
-    if (state.velocityAngle !== undefined) {
-      this.velocityAngle = state.velocityAngle;
-      this.deriveVelocityFromAngle();
-    }
-  }
-
-  private die(): void {
-    this.alive = false;
-    this.mesh.visible = false;
-    this.expireActiveEffect();
-    this.deathParticles = new DeathParticles(
-      this.color, this.position.x, this.position.y, this.position.z, this.scene,
-    );
-  }
-
   private expireActiveEffect(): void {
     if (this.activeEffect) {
       this.activeEffect.onExpire(this);
     }
-  }
-
-  applyNetState(state: { x: number; z: number; y: number; angle: number; alive: boolean; vy: number; grounded: boolean; boostMeter: number; boosting: boolean; invulnerable?: boolean; invulnerableTimer?: number; doubleJumpCooldown?: number; drifting?: boolean; velocityAngle?: number; pitch?: number; flying?: boolean; surfaceType?: number; forwardX?: number; forwardY?: number; forwardZ?: number; tick: number }): void {
-    // Death is always authoritative from host
-    if (!state.alive && this.alive) {
-      this.die();
-      return;
-    }
-
-    // Remote bikes: buffer states for interpolation
-    // First state: snap immediately so bike appears at correct position
-    if (this.netBuffer.length === 0) {
-      this.position.set(state.x, state.y, state.z);
-      this.angle = state.angle;
-      this.visualPos.copy(this.position);
-      this.visualAngle = this.angle;
-      this.visualInitialized = true;
-      this.mesh.position.copy(this.position);
-      this.targetQuaternion.setFromEuler(new THREE.Euler(0, this.angle + Math.PI, 0));
-      this.currentQuaternion.copy(this.targetQuaternion);
-      this.mesh.quaternion.copy(this.currentQuaternion);
-    }
-    // Push to interpolation buffer (keep last 3 for smooth interpolation)
-    this.netBuffer.push({
-      x: state.x, z: state.z, y: state.y, angle: state.angle,
-      vy: state.vy, grounded: state.grounded,
-      pitch: state.pitch ?? 0, flying: state.flying ?? false,
-      surfaceType: (state.surfaceType ?? SurfaceType.Floor) as SurfaceType,
-      forwardX: state.forwardX ?? Math.sin(state.angle),
-      forwardY: state.forwardY ?? 0,
-      forwardZ: state.forwardZ ?? Math.cos(state.angle),
-      tick: state.tick,
-      time: performance.now(),
-    });
-    // With 3 buffered states, we interpolate between [0] and [1] (one tick behind),
-    // giving the newest state [2] time to arrive before we need it.
-    if (this.netBuffer.length > 3) {
-      this.netBuffer.shift();
-    }
-    this.boosting = state.boosting;
-    this.boostMeter = state.boostMeter;
-    if (state.invulnerable !== undefined) {
-      this.syncInvulnerabilityFromNet(state.invulnerable, state.invulnerableTimer ?? 0);
-    }
-    if (state.doubleJumpCooldown !== undefined) {
-      this.doubleJumpCooldown = state.doubleJumpCooldown;
-      this.doubleJumpReady = state.doubleJumpCooldown <= 0;
-    }
-    this.syncDriftFromNetState(state);
   }
 
   syncInvulnerabilityFromNet(isInvulnerable: boolean, timer: number): void {
@@ -461,86 +406,6 @@ export class Bike {
       // Still invulnerable — sync timer
       this.effectTimer = timer;
     }
-  }
-
-  /** Snap position and state fields from a single net buffer entry. */
-  private snapToBufferEntry(entry: typeof this.netBuffer[0]): void {
-    this.position.set(entry.x, entry.y, entry.z);
-    this.angle = entry.angle;
-    this.vy = entry.vy;
-    this.grounded = entry.grounded;
-    this.pitch = entry.pitch;
-    this.flying = entry.flying;
-    this.surfaceType = entry.surfaceType;
-    this.forward = { x: entry.forwardX, y: entry.forwardY, z: entry.forwardZ };
-  }
-
-  /** Interpolate position and state between two buffer entries at parameter t (0..1). */
-  private lerpBufferEntries(a: typeof this.netBuffer[0], b: typeof this.netBuffer[0], t: number): void {
-    this.position.x = a.x + (b.x - a.x) * t;
-    this.position.y = a.y + (b.y - a.y) * t;
-    this.position.z = a.z + (b.z - a.z) * t;
-    this.angle = a.angle + wrapAngle(b.angle - a.angle) * t;
-    this.vy = a.vy + (b.vy - a.vy) * t;
-    this.pitch = a.pitch + (b.pitch - a.pitch) * t;
-
-    const src = t < 0.5 ? a : b;
-    this.grounded = src.grounded;
-    this.flying = src.flying;
-    this.surfaceType = src.surfaceType;
-    this.forward = { x: src.forwardX, y: src.forwardY, z: src.forwardZ };
-  }
-
-  deadReckon(dt: number, renderTick?: number): void {
-    if (!this.alive) return;
-
-    if (this.netBuffer.length >= 2 && renderTick !== undefined) {
-      // Tick-based interpolation: advance buffer past renderTick
-      while (this.netBuffer.length >= 3 && renderTick >= this.netBuffer[1].tick) {
-        this.netBuffer.shift();
-      }
-
-      const a = this.netBuffer[0];
-      const b = this.netBuffer[1];
-      const tickSpan = b.tick - a.tick;
-      const t = tickSpan > 0 ? (renderTick - a.tick) / tickSpan : 1.0;
-
-      if (t >= 0 && t <= 1.0) {
-        this.lerpBufferEntries(a, b, t);
-      } else if (renderTick > b.tick) {
-        // Extrapolation: cap at 1 tick to avoid overshooting turns
-        this.snapToBufferEntry(b);
-        const cappedSec = Math.min((renderTick - b.tick) * (NET_TICK_DURATION_MS / 1000), NET_TICK_DURATION_MS / 1000);
-        const speed = this.effectiveSpeed;
-        const cosPitch = b.flying ? Math.cos(b.pitch) : 1;
-        const extraAngle = this.drifting ? this.velocityAngle : b.angle;
-        this.position.x = b.x + Math.sin(extraAngle) * speed * cosPitch * cappedSec;
-        this.position.z = b.z + Math.cos(extraAngle) * speed * cosPitch * cappedSec;
-      } else {
-        this.snapToBufferEntry(a);
-      }
-    } else if (this.netBuffer.length >= 2) {
-      // Fallback: time-based interpolation when renderTick not available
-      const a = this.netBuffer[0];
-      const b = this.netBuffer[1];
-      const duration = b.time - a.time;
-      const elapsed = performance.now() - a.time;
-      const t = duration > 0 ? Math.min(elapsed / duration, 1.5) : 1.0;
-
-      this.lerpBufferEntries(a, b, Math.min(t, 1.0));
-
-      if (t >= 1.0 && this.netBuffer.length >= 3) {
-        this.netBuffer.shift();
-      }
-    }
-
-    this.visualPos.copy(this.position);
-    this.visualAngle = this.angle;
-    this.visualInitialized = true;
-    this.mesh.position.copy(this.visualPos);
-
-    this.updateVisuals(dt);
-    this.updateParticles(dt, this.position.x, this.position.y, this.position.z, this.angle);
   }
 
   /** Position for camera targeting — uses smoothed visual position when available */
@@ -578,9 +443,6 @@ export class Bike {
     this.forward = { x: Math.sin(angle), y: 0, z: Math.cos(angle) };
     this.targetQuaternion.setFromEuler(new THREE.Euler(0, angle + Math.PI, 0));
     this.currentQuaternion.copy(this.targetQuaternion);
-    this.netBuffer = [];
-    this.renderOffset.set(0, 0, 0);
-    this.renderAngleOffset = 0;
     this.visualPos.copy(this.position);
     this.visualAngle = this.angle;
     this.visualInitialized = false;

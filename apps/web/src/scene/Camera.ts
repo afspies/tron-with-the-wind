@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SurfaceType } from '@tron/shared';
+import type { PlayerInput } from '@tron/shared';
 import { Bike } from '../game/Bike';
 
 const CHASE_DISTANCE = 12;
@@ -33,6 +34,10 @@ export class GameCamera {
   private firstPerson = false;
   private fpBlend = 0;          // 0 = chase, 1 = first person
   private driftBlend = 0;       // 0 = normal, 1 = fully drifting (smooth transition)
+  private inputSteerBlend = 0;  // local-only presentation response for server-rendered bikes
+  private inputBoostBlend = 0;
+  private inputSteerTarget = 0;
+  private inputBoostTarget = 0;
   private keys = new Set<string>();
   private viewTogglePressed = false;  // edge-detect for X toggle
   private cameraUp = new THREE.Vector3(0, 1, 0); // lerps toward surfaceNormal
@@ -76,6 +81,16 @@ export class GameCamera {
 
   setLocalBikeIndex(index: number): void {
     this.localBikeIndex = index;
+  }
+
+  setLocalInputFeedback(input: PlayerInput | null): void {
+    if (!input) {
+      this.inputSteerTarget = 0;
+      this.inputBoostTarget = 0;
+      return;
+    }
+    this.inputSteerTarget = input.left === input.right ? 0 : input.left ? 1 : -1;
+    this.inputBoostTarget = input.boost ? 1 : 0;
   }
 
   update(dt: number, bikes: Bike[]): void {
@@ -122,6 +137,9 @@ export class GameCamera {
     } else {
       this.fpBlend = Math.max(fpTarget, this.fpBlend - blendDelta);
     }
+
+    this.inputSteerBlend += (this.inputSteerTarget - this.inputSteerBlend) * (1 - Math.exp(-12 * dt));
+    this.inputBoostBlend += (this.inputBoostTarget - this.inputBoostBlend) * (1 - Math.exp(-10 * dt));
   }
 
   private updateChase(dt: number, bikes: Bike[]): void {
@@ -154,7 +172,7 @@ export class GameCamera {
       const fwd = new THREE.Vector3(target.forward.x, target.forward.y, target.forward.z).normalize();
       const normal = new THREE.Vector3(sn.x, sn.y, sn.z);
 
-      const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend;
+      const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + this.inputBoostBlend * 1.5;
       // Camera behind bike (-forward * distance) + offset along normal (inward)
       const chasePos = new THREE.Vector3(
         pos.x - fwd.x * distance + normal.x * CHASE_HEIGHT,
@@ -185,10 +203,10 @@ export class GameCamera {
       this.targetLookAt.lerpVectors(lookAhead, fpLook, t);
     } else {
       // Floor/Air: chase logic with orbit and altitude scaling
-      const orbitAngle = ang + this.orbitOffset;
+      const orbitAngle = ang + this.orbitOffset + this.inputSteerBlend * 0.08;
       const extraDist = Math.min(pos.y * 0.3, 8);
       const extraHeight = Math.min(pos.y * 0.6, 15);
-      const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist;
+      const distance = CHASE_DISTANCE + DRIFT_EXTRA_DISTANCE * this.driftBlend + extraDist + this.inputBoostBlend * 1.5;
 
       const chasePos = new THREE.Vector3(
         pos.x - Math.sin(orbitAngle) * distance,

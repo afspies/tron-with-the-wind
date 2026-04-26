@@ -32,11 +32,11 @@ Worker secrets managed via `cd worker && npx wrangler secret put <NAME>`.
 ## Conventions
 
 - TypeScript strict mode, Three.js for 3D rendering
-- P2P networking via `trystero/torrent` (WebRTC, zero-server)
-- Host-authoritative network model: host runs simulation, clients dead-reckon
-- State broadcast at 20Hz with trail deltas (not full trails)
+- Colyseus networking over WebSocket
+- Server-authoritative network model: server runs simulation, clients interpolate `ServerMsg.GameSnapshot`
+- Gameplay snapshots broadcast at 30Hz with trail append/replace deltas
 - Game state machine in `Game.ts`: MENU -> LOBBY -> COUNTDOWN -> PLAYING -> ROUND_END -> GAME_OVER
 - New features get their own files in appropriate directories (ui/, game/, etc.)
-- `PlayerInput` includes: left, right, jump, boost
+- `PlayerInput` includes: left, right, jump, boost, drift, pitchUp, pitchDown
 - Trail points are 3D (`TrailPoint {x, y, z}`) for jump arcs
 - Collision is height-aware (bikes can drive under elevated trails)
