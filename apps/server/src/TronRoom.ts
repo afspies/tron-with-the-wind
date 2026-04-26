@@ -1,36 +1,46 @@
 import { Room, Client } from 'colyseus';
 import { Simulation } from '@tron/game-core';
-import { COUNTDOWN_DURATION, PLAYER_NAMES, MAX_PLAYERS, ClientMsg, ServerMsg } from '@tron/shared';
-import type { PlayerInput, AIDifficulty } from '@tron/shared';
 import {
-  TronState, PlayerSchema, BikeSchema, TrailPointSchema, PowerUpSchema,
+  COUNTDOWN_DURATION,
+  PLAYER_NAMES,
+  MAX_PLAYERS,
+  ClientMsg,
+  ServerMsg,
+  unpackPlayerInput,
+  toTrailPointWire,
+  type BikeSnapshot,
+  type GameEvent,
+  type GameSnapshot,
+  type InputFrame,
+  type PlayerInput,
+  type AIDifficulty,
+} from '@tron/shared';
+import {
+  TronState, PlayerSchema, BikeSchema,
 } from './schema/TronState';
 
 const SIM_INTERVAL_MS = 33;   // 30 Hz physics
 
 export class TronRoom extends Room<TronState> {
   maxClients = MAX_PLAYERS;
-  patchRate = 33;              // 30 Hz state patches — match physics tick rate
+  patchRate = 250;             // Low-frequency room state; gameplay uses snapshots.
 
   private simulation: Simulation | null = null;
   private playerInputs = new Map<string, PlayerInput>();
   private sessionToSlot = new Map<string, number>();
+  private lastTrailSentLength: number[] = [];
+  private trailRevisions: number[] = [];
+  private forceTrailReplace = new Set<number>();
+  private deathSlotsThisRound = new Set<number>();
+  private pendingEvents: GameEvent[] = [];
 
   onCreate(_options: { roomCode?: string }): void {
     this.setState(new TronState());
     this.autoDispose = true;
 
-    this.onMessage(ClientMsg.Input, (client, data: PlayerInput) => {
+    this.onMessage(ClientMsg.Input, (client, data: InputFrame | PlayerInput) => {
       if (this.state.phase !== 'playing') return;
-      this.playerInputs.set(client.sessionId, {
-        left: !!data.left,
-        right: !!data.right,
-        jump: !!data.jump,
-        boost: !!data.boost,
-        drift: !!data.drift,
-        pitchUp: !!data.pitchUp,
-        pitchDown: !!data.pitchDown,
-      });
+      this.playerInputs.set(client.sessionId, this.sanitizeInput(data));
     });
 
     this.onMessage(ClientMsg.Chat, (client, data: { text: string }) => {
@@ -150,6 +160,11 @@ export class TronRoom extends Room<TronState> {
 
     this.state.tick = 0;
     this.playerInputs.clear();
+    this.lastTrailSentLength = new Array(this.simulation.bikes.length).fill(0);
+    this.trailRevisions = new Array(this.simulation.bikes.length).fill(0);
+    this.forceTrailReplace.clear();
+    this.deathSlotsThisRound.clear();
+    this.pendingEvents = [];
 
     this.startRound();
 
@@ -163,13 +178,22 @@ export class TronRoom extends Room<TronState> {
     this.state.phase = 'countdown';
     this.state.countdownTimer = COUNTDOWN_DURATION;
     this.state.roundNumber = this.simulation.round.roundNumber;
+    this.state.tick = 0;
+    this.deathSlotsThisRound.clear();
+    this.forceTrailReplace.clear();
+    this.pendingEvents.push({
+      type: 'round-reset',
+      tick: this.state.tick,
+      roundNumber: this.state.roundNumber,
+    });
 
-    // Sync initial bike positions + trail reset
+    // Sync low-frequency spawn data for countdown rendering and reset all trails.
     this.syncBikesToSchema();
-    for (const bikeSchema of this.state.bikes) {
-      bikeSchema.trail.clear();
+    for (let i = 0; i < this.simulation.bikes.length; i++) {
+      this.lastTrailSentLength[i] = 0;
+      this.trailRevisions[i] = (this.trailRevisions[i] ?? 0) + 1;
+      this.forceTrailReplace.add(i);
     }
-    this.syncPowerUpsToSchema();
     this.syncScores();
   }
 
@@ -199,21 +223,13 @@ export class TronRoom extends Room<TronState> {
         const result = this.simulation.tick(dtSec, inputs);
         this.state.tick++;
 
-        // Sync simulation state to schema
-        this.syncBikesToSchema();
-        this.syncTrailsToSchema();
-
-        // Handle powerup events
-        for (const event of result.powerUpEvents) {
-          if (event.type === 'powerup-spawn' || event.type === 'powerup-pickup') {
-            this.broadcast(ServerMsg.PowerUpEffect, event);
-          }
-        }
-        this.syncPowerUpsToSchema();
-
+        const events = this.buildTickEvents(result);
         // Check round end
         if (result.roundEnded) {
           this.syncScores();
+          events.push({ type: 'round-end', tick: this.state.tick, winnerIndex: result.winnerIndex });
+          this.broadcastSnapshot(events);
+          this.syncBikesToSchema();
           this.state.phase = 'roundEnd';
 
           const gameWinner = this.simulation.round.getWinner(this.state.roundsToWin);
@@ -226,10 +242,188 @@ export class TronRoom extends Room<TronState> {
               this.startRound();
             }, 3000);
           }
+        } else {
+          this.broadcastSnapshot(events);
         }
         break;
       }
     }
+  }
+
+  private sanitizeInput(data: InputFrame | PlayerInput): PlayerInput {
+    if (typeof (data as InputFrame)?.buttons === 'number') {
+      return unpackPlayerInput((data as InputFrame).buttons);
+    }
+    const input = data as PlayerInput;
+    return {
+      left: !!input.left,
+      right: !!input.right,
+      jump: !!input.jump,
+      boost: !!input.boost,
+      drift: !!input.drift,
+      pitchUp: !!input.pitchUp,
+      pitchDown: !!input.pitchDown,
+    };
+  }
+
+  private buildTickEvents(result: ReturnType<Simulation['tick']>): GameEvent[] {
+    if (!this.simulation) return [];
+    const events: GameEvent[] = this.pendingEvents.splice(0);
+
+    for (const bike of this.simulation.bikes) {
+      if (!bike.alive && !this.deathSlotsThisRound.has(bike.playerIndex)) {
+        this.deathSlotsThisRound.add(bike.playerIndex);
+        events.push({
+          type: 'bike-death',
+          tick: this.state.tick,
+          slot: bike.playerIndex,
+          x: bike.position.x,
+          y: bike.position.y,
+          z: bike.position.z,
+        });
+      }
+    }
+
+    for (const event of result.powerUpEvents) {
+      switch (event.type) {
+        case 'powerup-spawn':
+          if (event.powerupId != null && event.powerupX != null && event.powerupZ != null) {
+            events.push({
+              type: 'powerup-spawn',
+              tick: this.state.tick,
+              powerupId: event.powerupId,
+              powerupX: event.powerupX,
+              powerupZ: event.powerupZ,
+              powerupType: event.powerupType ?? 'invulnerability',
+            });
+          }
+          break;
+
+        case 'powerup-pickup':
+          if (event.powerupId != null && event.bikeIndex != null) {
+            events.push({
+              type: 'powerup-pickup',
+              tick: this.state.tick,
+              powerupId: event.powerupId,
+              bikeIndex: event.bikeIndex,
+              powerupType: event.powerupType ?? 'invulnerability',
+            });
+          }
+          break;
+
+        case 'trail-destroy':
+          if (event.trailIndex != null && event.destroyX != null && event.destroyZ != null && event.destroyRadius != null) {
+            this.trailRevisions[event.trailIndex] = (this.trailRevisions[event.trailIndex] ?? 0) + 1;
+            this.forceTrailReplace.add(event.trailIndex);
+            events.push({
+              type: 'trail-destroy',
+              tick: this.state.tick,
+              trailIndex: event.trailIndex,
+              destroyX: event.destroyX,
+              destroyZ: event.destroyZ,
+              destroyRadius: event.destroyRadius,
+            });
+          }
+          break;
+      }
+    }
+
+    return events;
+  }
+
+  private broadcastSnapshot(events: GameEvent[]): void {
+    const snapshot = this.buildSnapshot(events);
+    if (snapshot) {
+      this.broadcast(ServerMsg.GameSnapshot, snapshot);
+    }
+  }
+
+  private buildSnapshot(events: GameEvent[]): GameSnapshot | null {
+    if (!this.simulation) return null;
+    return {
+      tick: this.state.tick,
+      serverTime: this.clock.currentTime,
+      phase: this.state.phase,
+      roundNumber: this.state.roundNumber,
+      roundsToWin: this.state.roundsToWin,
+      bikes: this.simulation.bikes.map(bike => this.buildBikeSnapshot(bike)),
+      trails: this.buildTrailUpdates(),
+      powerUps: this.simulation.powerUps.powerUps.map(pu => ({
+        id: pu.id,
+        type: pu.type,
+        x: pu.x,
+        z: pu.z,
+        active: pu.active,
+      })),
+      scores: [...this.simulation.round.scores],
+      events,
+    };
+  }
+
+  private buildBikeSnapshot(bike: Simulation['bikes'][number]): BikeSnapshot {
+    return {
+      slot: bike.playerIndex,
+      x: bike.position.x,
+      y: bike.position.y,
+      z: bike.position.z,
+      angle: bike.angle,
+      vx: bike.vx,
+      vy: bike.vy,
+      vz: bike.vz,
+      alive: bike.alive,
+      grounded: bike.grounded,
+      boostMeter: bike.boostMeter,
+      boosting: bike.boosting,
+      invulnerable: bike.invulnerable,
+      invulnerableTimer: bike.invulnerableTimer,
+      doubleJumpCooldown: bike.doubleJumpCooldown,
+      drifting: bike.drifting,
+      velocityAngle: bike.velocityAngle,
+      pitch: bike.pitch,
+      flying: bike.flying,
+      surfaceType: bike.surfaceType,
+      forwardX: bike.forward.x,
+      forwardY: bike.forward.y,
+      forwardZ: bike.forward.z,
+    };
+  }
+
+  private buildTrailUpdates(): GameSnapshot['trails'] {
+    if (!this.simulation) return [];
+    const updates: GameSnapshot['trails'] = [];
+
+    for (let i = 0; i < this.simulation.bikes.length; i++) {
+      const bike = this.simulation.bikes[i]!;
+      const points = bike.trail.points;
+      const previousLength = this.lastTrailSentLength[i] ?? 0;
+      const forceReplace = this.forceTrailReplace.has(i) || points.length < previousLength;
+
+      if (forceReplace) {
+        if (!this.forceTrailReplace.has(i)) {
+          this.trailRevisions[i] = (this.trailRevisions[i] ?? 0) + 1;
+        }
+        updates.push({
+          slot: bike.playerIndex,
+          revision: this.trailRevisions[i] ?? 0,
+          mode: 'replace',
+          from: 0,
+          points: points.map(toTrailPointWire),
+        });
+        this.lastTrailSentLength[i] = points.length;
+        this.forceTrailReplace.delete(i);
+      } else if (points.length > previousLength) {
+        updates.push({
+          slot: bike.playerIndex,
+          revision: this.trailRevisions[i] ?? 0,
+          mode: 'append',
+          from: previousLength,
+          points: points.slice(previousLength).map(toTrailPointWire),
+        });
+        this.lastTrailSentLength[i] = points.length;
+      }
+    }
+
+    return updates;
   }
 
   private syncBikesToSchema(): void {
@@ -241,81 +435,7 @@ export class TronRoom extends Room<TronState> {
       bike.y = sim.position.y;
       bike.z = sim.position.z;
       bike.angle = sim.angle;
-      bike.vy = sim.vy;
       bike.alive = sim.alive;
-      bike.grounded = sim.grounded;
-      bike.boostMeter = sim.boostMeter;
-      bike.boosting = sim.boosting;
-      bike.invulnerable = sim.invulnerable;
-      bike.invulnerableTimer = sim.invulnerableTimer;
-      bike.doubleJumpCooldown = sim.doubleJumpCooldown;
-      bike.drifting = sim.drifting;
-      bike.velocityAngle = sim.velocityAngle;
-      bike.pitch = sim.pitch;
-      bike.flying = sim.flying;
-      bike.surfaceType = sim.surfaceType;
-      bike.forwardX = sim.forward.x;
-      bike.forwardY = sim.forward.y;
-      bike.forwardZ = sim.forward.z;
-      bike.vx = sim.vx;
-      bike.vz = sim.vz;
-    }
-  }
-
-  private syncTrailsToSchema(): void {
-    if (!this.simulation) return;
-    for (let i = 0; i < this.simulation.bikes.length && i < this.state.bikes.length; i++) {
-      const simTrail = this.simulation.bikes[i].trail;
-      const bikeSchema = this.state.bikes[i]!;
-      const schemaTrail = bikeSchema.trail;
-      const simPoints = simTrail.points;
-
-      // Colyseus delta-encodes ArraySchema — appending new items sends only the new ones
-      if (simPoints.length > schemaTrail.length) {
-        // Append new points
-        for (let j = schemaTrail.length; j < simPoints.length; j++) {
-          const tp = new TrailPointSchema();
-          tp.x = simPoints[j].x;
-          tp.y = simPoints[j].y;
-          tp.z = simPoints[j].z;
-          schemaTrail.push(tp);
-        }
-      } else if (simPoints.length < schemaTrail.length) {
-        // Trail shrank (deletion) — full rebuild
-        schemaTrail.clear();
-        for (const p of simPoints) {
-          const tp = new TrailPointSchema();
-          tp.x = p.x;
-          tp.y = p.y;
-          tp.z = p.z;
-          schemaTrail.push(tp);
-        }
-      }
-    }
-  }
-
-  private syncPowerUpsToSchema(): void {
-    if (!this.simulation) return;
-    const simPUs = this.simulation.powerUps.powerUps;
-
-    // Add new power-ups
-    while (this.state.powerUps.length < simPUs.length) {
-      this.state.powerUps.push(new PowerUpSchema());
-    }
-
-    // Shrink schema array to match sim (inactive powerups are pruned)
-    while (this.state.powerUps.length > simPUs.length) {
-      this.state.powerUps.pop();
-    }
-
-    for (let i = 0; i < simPUs.length; i++) {
-      const sim = simPUs[i];
-      const pu = this.state.powerUps[i]!;
-      pu.id = sim.id;
-      pu.puType = sim.type;
-      pu.x = sim.x;
-      pu.z = sim.z;
-      pu.active = sim.active;
     }
   }
 

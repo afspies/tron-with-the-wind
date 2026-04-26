@@ -1,6 +1,6 @@
 import { Client, Room } from 'colyseus.js';
-import { ClientMsg, ServerMsg } from '@tron/shared';
-import type { PlayerInput, AIDifficulty } from '@tron/shared';
+import { ClientMsg, ServerMsg, NET_TICK_DURATION_MS, packPlayerInput } from '@tron/shared';
+import type { GameSnapshot, InputFrame, PlayerInput, AIDifficulty } from '@tron/shared';
 import type { ChatMessage } from '../ui/Chat';
 import { getRandomWord } from '../data/words';
 
@@ -47,9 +47,13 @@ export class ColyseusClient {
   // Callbacks
   onStateChange: (() => void) | null = null;
   onChatReceived: ((msg: ChatMessage) => void) | null = null;
-  onPowerUpEvent: ((event: any) => void) | null = null;
+  onGameSnapshot: ((snapshot: GameSnapshot) => void) | null = null;
   onDisconnect: ((code: number) => void) | null = null;
   onError: ((error: Error) => void) | null = null;
+
+  private inputSeq = 0;
+  private lastInputButtons = -1;
+  private lastInputSentAt = 0;
 
   constructor() {
     this.client = new Client(getServerUrl());
@@ -93,8 +97,8 @@ export class ColyseusClient {
       this.onChatReceived?.(data);
     });
 
-    this.room.onMessage(ServerMsg.PowerUpEffect, (data: any) => {
-      this.onPowerUpEvent?.(data);
+    this.room.onMessage(ServerMsg.GameSnapshot, (data: GameSnapshot) => {
+      this.onGameSnapshot?.(data);
     });
 
     this.room.onLeave((code: number) => {
@@ -113,7 +117,23 @@ export class ColyseusClient {
   }
 
   sendInput(input: PlayerInput): void {
-    this.room?.send(ClientMsg.Input, input);
+    if (!this.room) return;
+
+    const buttons = packPlayerInput(input);
+    const now = performance.now();
+    const changed = buttons !== this.lastInputButtons;
+    const heartbeatDue = now - this.lastInputSentAt >= NET_TICK_DURATION_MS;
+    if (!changed && !heartbeatDue) return;
+
+    const frame: InputFrame = {
+      seq: this.inputSeq++,
+      buttons,
+      clientTime: now,
+    };
+
+    this.lastInputButtons = buttons;
+    this.lastInputSentAt = now;
+    this.room.send(ClientMsg.Input, frame);
   }
 
   sendChat(text: string): void {
@@ -162,5 +182,8 @@ export class ColyseusClient {
     this.roomCode = '';
     this.isHost = false;
     this.localSessionId = '';
+    this.inputSeq = 0;
+    this.lastInputButtons = -1;
+    this.lastInputSentAt = 0;
   }
 }

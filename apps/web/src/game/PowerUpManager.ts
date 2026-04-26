@@ -3,6 +3,7 @@ import { PowerUp, PowerUpType, generateSpawnPosition } from './powerups/PowerUp'
 import type { Bike } from './Bike';
 import type { Trail } from './Trail';
 import { POWERUP_SPAWN_INTERVAL, POWERUP_SPAWN_DELAY, POWERUP_MAX_ACTIVE, TRAIL_DESTROY_RADIUS } from '@tron/shared';
+import type { PowerUpSnapshot } from '@tron/shared';
 import type { PowerUpEvent } from '@tron/game-core';
 
 export class PowerUpManager {
@@ -117,6 +118,7 @@ export class PowerUpManager {
     switch (event.type) {
       case 'powerup-spawn':
         if (event.powerupX != null && event.powerupZ != null && event.powerupId != null) {
+          if (this.powerUps.some(p => p.id === event.powerupId && p.active)) return;
           const puType = (event.powerupType as PowerUpType) || 'invulnerability';
           const pu = new PowerUp(event.powerupId, puType, event.powerupX, event.powerupZ, this.scene);
           this.powerUps.push(pu);
@@ -135,6 +137,29 @@ export class PowerUpManager {
           }
         }
         break;
+    }
+  }
+
+  syncFromSnapshot(powerUps: PowerUpSnapshot[]): void {
+    const activeIds = new Set(powerUps.filter(p => p.active).map(p => p.id));
+
+    for (const pu of this.powerUps) {
+      if (pu.active && !activeIds.has(pu.id)) {
+        pu.collect();
+      }
+    }
+
+    this.powerUps = this.powerUps.filter((pu) => {
+      if (pu.active) return true;
+      pu.dispose();
+      return false;
+    });
+
+    for (const snapshot of powerUps) {
+      if (!snapshot.active) continue;
+      if (this.powerUps.some(p => p.id === snapshot.id && p.active)) continue;
+      const puType = (snapshot.type as PowerUpType) || 'invulnerability';
+      this.powerUps.push(new PowerUp(snapshot.id, puType, snapshot.x, snapshot.z, this.scene));
     }
   }
 

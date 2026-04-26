@@ -16,7 +16,7 @@ A 3D Tron lightcycle battle game built with Three.js, TypeScript, and Colyseus. 
 
 **Quick Play** — 1 human vs 3 AI, local only. Start immediately.
 
-**Online Play** — Create or join a 4-letter room code. Server-authoritative: Colyseus server runs the simulation, clients sync via schema state.
+**Online Play** — Create or join a 4-letter room code. Server-authoritative: Colyseus server runs the simulation, clients render authoritative gameplay snapshots.
 
 ## Architecture
 
@@ -40,13 +40,14 @@ packages/
 
 ## Network Protocol
 
-Colyseus 0.16 server-authoritative model with schema-based state sync:
+Colyseus 0.16 server-authoritative model with explicit gameplay snapshots:
 
 | Direction | Mechanism | Data |
 |-----------|-----------|------|
-| Client → Server | Messages (`ClientMsg`) | Player input (left, right, jump, boost), lobby actions |
-| Server → Client | Schema sync | Bike positions, trails, game state, scores |
-| Server → Client | Messages (`ServerMsg`) | Events (countdown, round-end, game-over), chat |
+| Client → Server | Messages (`ClientMsg`) | Packed input frames, lobby actions |
+| Server → Client | Schema sync | Low-frequency lobby, phase, config, scores |
+| Server → Client | Messages (`ServerMsg.GameSnapshot`) | Bike snapshots, trail deltas, active powerups, gameplay events |
+| Server → Client | Messages (`ServerMsg`) | Chat |
 
 ## Build & Dev
 
